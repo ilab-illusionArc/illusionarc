@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Boss Rush Demo</title>
+    <style>
+        html,body{margin:0;height:100%;background:#05070c;color:#e7eefc;font-family:system-ui}
+        .wrap{height:100%;display:grid;place-items:center}
+        button{padding:14px 18px;border:1px solid rgba(255,255,255,.2);border-radius:14px;background:rgba(255,255,255,.06);color:#fff;font-size:16px}
+        button:active{transform:scale(.98)}
+        .sub{opacity:.7;margin-top:10px;font-size:13px;text-align:center}
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div>
+        <button id="btn">Finish Run (send SCORE)</button>
+        <div class="sub">This is a placeholder game file. It posts {type:'SCORE'} to parent.</div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('btn').addEventListener('click', () => {
+        const score = Math.floor(Math.random() * 5000)
+        window.parent.postMessage({ type:'SCORE', score }, window.location.origin)
+    })
+</script>
+</body>
+</html>

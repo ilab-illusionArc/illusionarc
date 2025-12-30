@@ -1,0 +1,1 @@
+export const PLACEHOLDER_IMG = '/img/image-placeholder.jpg'

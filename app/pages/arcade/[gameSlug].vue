@@ -15,6 +15,16 @@ useHead(() => ({
   meta: [{ name: 'description', content: game.value!.shortPitch }]
 }))
 
+// ---- iOS detection (covers iPadOS too) ----
+const isIOS = computed(() => {
+  if (import.meta.server) return false
+  const ua = navigator.userAgent || ''
+  const iOS = /iPad|iPhone|iPod/.test(ua)
+  const iPadOS = navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1
+  return iOS || iPadOS
+})
+const showFullscreen = computed(() => !isIOS.value)
+
 // ---- leaderboard ----
 const { submitScore } = useLeaderboard()
 const playerName = useState<string>('playerName', () => 'Player')
@@ -60,16 +70,8 @@ function closePlay() {
   router.replace({ query: q })
 }
 
-// ---- header controls ----
-const soundOn = ref(true)
-function toggleSound() {
-  soundOn.value = !soundOn.value
-  playerRef.value?.send?.({ type: 'SOUND', on: soundOn.value })
-}
-
 function requestFullscreen() {
-  // Best-effort. iOS Safari often blocks real fullscreen for iframes/canvas.
-  // Overlay is already "fullscreen UI".
+  if (!showFullscreen.value) return
   playerRef.value?.requestFullscreen?.()
 }
 
@@ -92,17 +94,15 @@ watch(
 )
 
 // ---- focus/visibility behavior ----
-// DON’T permanently stop on blur, otherwise you get stuck on "Ready to play".
 // If it was stopped, resume when visible again.
 function onVisibilityChange() {
   if (!playing.value) return
   if (document.visibilityState === 'visible') {
-    // resume
     playerRef.value?.start?.()
   }
 }
 
-// iOS BFCache / pagehide: stop audio to prevent "black page + sound"
+// iOS BFCache / pagehide: stop iframe to prevent "black page + sound"
 function onPageHide() {
   hardStop()
 }
@@ -116,7 +116,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('pagehide', onPageHide)
 })
 
-// ---- ratings (optional if you have these fields) ----
+// ---- ratings (optional) ----
 const ratingValue = computed(() => (game.value as any)?.rating?.value ?? 0)
 const ratingCount = computed(() => (game.value as any)?.rating?.count ?? 0)
 const fullStars = computed(() => Math.floor(ratingValue.value))
@@ -232,7 +232,7 @@ const fullStars = computed(() => Math.floor(ratingValue.value))
     <!-- Fullscreen Overlay -->
     <Teleport to="body">
       <div v-if="playing" class="fixed inset-0 z-[200] bg-black">
-        <!-- Header MUST be above iframe -->
+        <!-- Header -->
         <div
             class="absolute left-0 right-0 top-0 z-[220] pointer-events-auto border-b border-white/10 bg-black/70 backdrop-blur"
             :style="{ paddingTop: 'env(safe-area-inset-top)' }"
@@ -244,12 +244,8 @@ const fullStars = computed(() => Math.floor(ratingValue.value))
             </div>
 
             <div class="flex items-center gap-2">
-              <UButton variant="ghost" @click="toggleSound">
-                <UIcon :name="soundOn ? 'i-heroicons-speaker-wave' : 'i-heroicons-speaker-x-mark'" class="w-5 h-5" />
-                {{ soundOn ? 'Sound' : 'Muted' }}
-              </UButton>
-
-              <UButton variant="ghost" @click="requestFullscreen">
+              <!-- Fullscreen: only non-iOS -->
+              <UButton v-if="showFullscreen" variant="ghost" @click="requestFullscreen">
                 <UIcon name="i-heroicons-arrows-pointing-out" class="w-5 h-5" />
                 Fullscreen
               </UButton>
@@ -262,7 +258,7 @@ const fullStars = computed(() => Math.floor(ratingValue.value))
           </div>
         </div>
 
-        <!-- Game area below header -->
+        <!-- Game area -->
         <div
             class="absolute inset-0 z-[210]"
             :style="{ paddingTop: 'calc(env(safe-area-inset-top) + 56px)', paddingBottom: 'env(safe-area-inset-bottom)' }"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const { services } = useContent()
+useHead({ title: 'Services' })
 </script>
 
 <template>

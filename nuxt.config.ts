@@ -25,5 +25,5 @@ export default defineNuxtConfig({
 
   ui: {
     // keep defaults for now; we’ll theme components more in later steps
-  }
+  },
 })

@@ -1,18 +1,22 @@
-import { readDb, topScores } from '../../utils/leaderboardStore'
+// server/api/leaderboard/get.get.ts
+import { getTopFromStore } from '../../../server/utils/leaderboardStore'
 
-export default defineEventHandler(async (event) => {
+export default defineEventHandler((event) => {
+  try {
     const q = getQuery(event)
-    const gameSlug = typeof q.gameSlug === 'string' ? q.gameSlug : null
-    const limit = typeof q.limit === 'string' ? Math.min(200, Math.max(1, parseInt(q.limit))) : 50
+    const gameSlug = String(q.gameSlug ?? '').trim()
+    const limitRaw = Number(q.limit ?? 10)
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 50)) : 10
 
-    const db = await readDb()
-    const rows = gameSlug
-        ? db.scores.filter(s => s.gameSlug === gameSlug)
-        : db.scores
-
-    return {
-        ok: true,
-        gameSlug,
-        top: topScores(rows, limit)
+    // Never 500 for missing params — just return empty.
+    if (!gameSlug) {
+      return { ok: true, items: [], gameSlug: '', limit }
     }
+
+    const items = getTopFromStore(gameSlug, limit)
+    return { ok: true, items, gameSlug, limit }
+  } catch (e: any) {
+    // Never crash the app on refresh.
+    return { ok: false, items: [], error: 'Leaderboard unavailable right now.' }
+  }
 })

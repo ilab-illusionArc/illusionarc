@@ -5,6 +5,7 @@ import TopScoresPanel from '@/components/arcade/TopScoresPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 
 const slug = computed(() => String(route.params.gameSlug || ''))
 const game = computed(() => GAMES.find((g) => g.slug === slug.value))
@@ -15,7 +16,7 @@ useHead(() => ({
   meta: [{ name: 'description', content: game.value!.shortPitch }]
 }))
 
-// ---- iOS detection (covers iPadOS too) ----
+// iOS detection (also iPadOS)
 const isIOS = computed(() => {
   if (import.meta.server) return false
   const ua = navigator.userAgent || ''
@@ -25,7 +26,7 @@ const isIOS = computed(() => {
 })
 const showFullscreen = computed(() => !isIOS.value)
 
-// ---- leaderboard ----
+// leaderboard
 const { submitScore } = useLeaderboard()
 const playerName = useState<string>('playerName', () => 'Player')
 const lastScore = ref<number | null>(null)
@@ -41,7 +42,7 @@ async function onScore(score: number) {
   }
 }
 
-// ---- lobby actions ----
+// lobby state
 const liked = ref(false)
 const fav = ref(false)
 const showControls = ref(false)
@@ -53,60 +54,49 @@ onMounted(() => {
 watch(liked, (v) => localStorage.setItem(`like_${game.value!.slug}`, v ? '1' : '0'))
 watch(fav, (v) => localStorage.setItem(`fav_${game.value!.slug}`, v ? '1' : '0'))
 
-// ---- play state in URL: ?play=1 ----
+// play state
 const playing = computed(() => route.query.play === '1')
-
-// Force remount to kill audio + iframe state
 const playerKey = ref(0)
 const playerRef = ref<InstanceType<typeof GamePlayer> | null>(null)
 
 function openPlay() {
   router.push({ query: { ...route.query, play: '1' } })
 }
-
 function closePlay() {
   const q: Record<string, any> = { ...route.query }
   delete q.play
   router.replace({ query: q })
 }
-
 function requestFullscreen() {
   if (!showFullscreen.value) return
   playerRef.value?.requestFullscreen?.()
 }
-
 function hardStop() {
   playerRef.value?.stop?.()
   playerKey.value++
 }
 
 watch(
-    playing,
-    async (v) => {
-      if (v) {
-        await nextTick()
-        playerRef.value?.start?.()
-      } else {
-        hardStop()
-      }
-    },
-    { immediate: true }
+  playing,
+  async (v) => {
+    if (v) {
+      await nextTick()
+      playerRef.value?.start?.()
+    } else {
+      hardStop()
+    }
+  },
+  { immediate: true }
 )
 
-// ---- focus/visibility behavior ----
-// If it was stopped, resume when visible again.
+// focus/visibility + iOS pagehide cleanup
 function onVisibilityChange() {
   if (!playing.value) return
-  if (document.visibilityState === 'visible') {
-    playerRef.value?.start?.()
-  }
+  if (document.visibilityState === 'visible') playerRef.value?.start?.()
 }
-
-// iOS BFCache / pagehide: stop iframe to prevent "black page + sound"
 function onPageHide() {
   hardStop()
 }
-
 onMounted(() => {
   document.addEventListener('visibilitychange', onVisibilityChange)
   window.addEventListener('pagehide', onPageHide)
@@ -116,10 +106,42 @@ onBeforeUnmount(() => {
   window.removeEventListener('pagehide', onPageHide)
 })
 
-// ---- ratings (optional) ----
-const ratingValue = computed(() => (game.value as any)?.rating?.value ?? 0)
-const ratingCount = computed(() => (game.value as any)?.rating?.count ?? 0)
+// rating display
+const ratingValue = computed(() => game.value?.rating?.value ?? 0)
+const ratingCount = computed(() => game.value?.rating?.count ?? 0)
 const fullStars = computed(() => Math.floor(ratingValue.value))
+
+// share / embed
+const origin = computed(() => (import.meta.client ? window.location.origin : ''))
+const shareUrl = computed(() => `${origin.value}/arcade/${game.value!.slug}`)
+const embedUrl = computed(() => `${origin.value}/arcade/${game.value!.slug}?embed=1`)
+const embedCode = computed(() => {
+  const aspect = game.value!.embed.aspectRatio || '16/9'
+  return `<iframe src="${embedUrl.value}" width="100%" style="aspect-ratio:${aspect}; border:0; border-radius:16px; overflow:hidden" allow="autoplay; fullscreen; gamepad" allowfullscreen loading="lazy"></iframe>`
+})
+
+async function copy(text: string) {
+  if (!import.meta.client) return
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.add({ title: 'Copied!', description: 'Copied to clipboard.', color: 'success' })
+  } catch {
+    // fallback (Safari sometimes blocks clipboard)
+    prompt('Copy this:', text)
+  }
+}
+
+async function nativeShare() {
+  if (!import.meta.client) return
+  const url = shareUrl.value
+  // @ts-ignore
+  if (navigator.share) {
+    // @ts-ignore
+    await navigator.share({ title: game.value!.name, text: game.value!.shortPitch, url })
+  } else {
+    await copy(url)
+  }
+}
 </script>
 
 <template>
@@ -142,33 +164,42 @@ const fullStars = computed(() => Math.floor(ratingValue.value))
       <div class="grid gap-4 md:grid-cols-2">
         <div class="rounded-2xl overflow-hidden border border-white/10 bg-black/20">
           <NuxtImg
-              :src="game!.thumbnail"
-              format="webp"
-              width="1200"
-              height="675"
-              sizes="(max-width: 768px) 100vw, 520px"
-              class="w-full h-48 md:h-full object-cover"
-              loading="eager"
-              fetchpriority="high"
-              alt="Game preview"
+            :src="game!.thumbnail"
+            format="webp"
+            width="1200"
+            height="675"
+            sizes="(max-width: 768px) 100vw, 520px"
+            class="w-full h-48 md:h-full object-cover"
+            loading="eager"
+            fetchpriority="high"
+            alt="Game preview"
           />
         </div>
 
         <div class="flex flex-col justify-between gap-4">
           <!-- Rating -->
-          <div class="flex items-center gap-3">
-            <div class="flex items-center gap-1">
+          <div class="flex items-end gap-4">
+            <div class="flex items-center gap-1 pt-1">
               <UIcon
-                  v-for="i in 5"
-                  :key="i"
-                  :name="i <= fullStars ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
-                  class="w-5 h-5 opacity-90"
+                v-for="i in 5"
+                :key="i"
+                :name="i <= fullStars ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
+                class="w-5 h-5 opacity-90"
               />
             </div>
-            <div class="text-sm opacity-80">
-              <b class="opacity-100">{{ Number(ratingValue).toFixed(1) }}</b>
-              <span class="opacity-70">({{ ratingCount }} ratings)</span>
+
+            <!-- ✅ Description fills the empty area -->
+            <div class="flex-1">
+              <div class="text-sm opacity-80">
+                <b class="opacity-100">{{ Number(ratingValue).toFixed(1) }}</b>
+                <span class="opacity-70"> ({{ ratingCount }} ratings)</span>
+              </div>
             </div>
+          </div>
+          <div class="flex-1">
+            <p class="mt-2 text-sm opacity-80 leading-relaxed">
+                {{ game!.description || game!.shortPitch }}
+              </p>
           </div>
 
           <!-- Actions -->
@@ -202,6 +233,43 @@ const fullStars = computed(() => Math.floor(ratingValue.value))
       </div>
     </UCard>
 
+    <!-- ✅ Share / Embed section -->
+    <UCard v-if="game!.embedAllowed" class="mt-6 bg-white/5 border-white/10">
+      <template #header>
+        <div class="text-lg font-semibold">Share & Embed</div>
+      </template>
+
+      <div class="grid gap-4 md:grid-cols-2">
+        <div class="space-y-3">
+          <div class="text-sm opacity-80">
+            Share this game link or embed it on your website.
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <UButton color="primary" variant="solid" @click="nativeShare">
+              <UIcon name="i-heroicons-share" class="w-5 h-5" />
+              Share
+            </UButton>
+
+            <UButton variant="soft" @click="copy(shareUrl)">
+              <UIcon name="i-heroicons-link" class="w-5 h-5" />
+              Copy Link
+            </UButton>
+
+            <UButton variant="soft" @click="copy(embedCode)">
+              <UIcon name="i-heroicons-clipboard-document" class="w-5 h-5" />
+              Copy Embed Code
+            </UButton>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/30 p-3">
+          <div class="text-xs opacity-70 mb-2">Embed code</div>
+          <pre class="text-xs whitespace-pre-wrap break-words opacity-90 select-text">{{ embedCode }}</pre>
+        </div>
+      </div>
+    </UCard>
+
     <!-- Info + Leaderboard -->
     <div class="mt-10 grid gap-6 md:grid-cols-3">
       <div class="md:col-span-2 grid gap-6">
@@ -213,29 +281,33 @@ const fullStars = computed(() => Math.floor(ratingValue.value))
         </UCard>
       </div>
 
-      <TopScoresPanel v-if="game!.leaderboard" :game-slug="game!.slug" :limit="10" />
+      <!-- ✅ Prevent SSR refresh errors -->
+      <ClientOnly>
+        <TopScoresPanel v-if="game!.leaderboard" :game-slug="game!.slug" :limit="10" />
+      </ClientOnly>
     </div>
 
-    <!-- Controls Modal -->
+    <!-- Controls Modal (✅ remove footer Close button, add header close icon) -->
     <UModal v-model="showControls">
-      <UCard class="bg-white/5 border-white/10">
-        <template #header><div class="text-lg font-semibold">Controls</div></template>
+      <UCard class="mt-6 bg-white/5 border-white/10">
+        <template #header>
+          <div class="flex items-center justify-between gap-3">
+            <div class="text-lg font-semibold">Controls</div>
+          </div>
+        </template>
+
         <ul class="space-y-2 opacity-85">
           <li v-for="(c, i) in game!.controls" :key="i">• {{ c }}</li>
         </ul>
-        <div class="mt-4 flex justify-end">
-          <UButton color="primary" variant="solid" @click="showControls = false">Close</UButton>
-        </div>
       </UCard>
     </UModal>
 
     <!-- Fullscreen Overlay -->
     <Teleport to="body">
       <div v-if="playing" class="fixed inset-0 z-[200] bg-black">
-        <!-- Header -->
         <div
-            class="absolute left-0 right-0 top-0 z-[220] pointer-events-auto border-b border-white/10 bg-black/70 backdrop-blur"
-            :style="{ paddingTop: 'env(safe-area-inset-top)' }"
+          class="absolute left-0 right-0 top-0 z-[220] pointer-events-auto border-b border-white/10 bg-black/70 backdrop-blur"
+          :style="{ paddingTop: 'env(safe-area-inset-top)' }"
         >
           <div class="h-14 px-3 flex items-center justify-between">
             <div class="flex items-center gap-2">
@@ -244,7 +316,6 @@ const fullStars = computed(() => Math.floor(ratingValue.value))
             </div>
 
             <div class="flex items-center gap-2">
-              <!-- Fullscreen: only non-iOS -->
               <UButton v-if="showFullscreen" variant="ghost" @click="requestFullscreen">
                 <UIcon name="i-heroicons-arrows-pointing-out" class="w-5 h-5" />
                 Fullscreen
@@ -258,19 +329,18 @@ const fullStars = computed(() => Math.floor(ratingValue.value))
           </div>
         </div>
 
-        <!-- Game area -->
         <div
-            class="absolute inset-0 z-[210]"
-            :style="{ paddingTop: 'calc(env(safe-area-inset-top) + 56px)', paddingBottom: 'env(safe-area-inset-bottom)' }"
+          class="absolute inset-0 z-[210]"
+          :style="{ paddingTop: 'calc(env(safe-area-inset-top) + 56px)', paddingBottom: 'env(safe-area-inset-bottom)' }"
         >
           <div class="h-full p-2">
             <GamePlayer
-                :key="playerKey"
-                ref="playerRef"
-                :game="game!"
-                :defer="true"
-                :fullscreen="true"
-                @score="(e) => onScore(e.score)"
+              :key="playerKey"
+              ref="playerRef"
+              :game="game!"
+              :defer="true"
+              :fullscreen="true"
+              @score="(e) => onScore(e.score)"
             />
           </div>
         </div>

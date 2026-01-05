@@ -1,44 +1,40 @@
-import { promises as fs } from 'node:fs'
-import { join } from 'node:path'
-
-export type ScoreRow = {
-    id: string
-    gameSlug: string
-    player: string
-    score: number
-    createdAt: string
-    source: 'arcade' | 'embed'
+// server/utils/leaderboardStore.ts
+export type LeaderboardEntry = {
+  player: string
+  score: number
+  createdAt: number // epoch ms
 }
 
-type Db = { scores: ScoreRow[] }
-
-const DATA_DIR = join(process.cwd(), '.data')
-const FILE = join(DATA_DIR, 'leaderboard.json')
-
-async function ensureFile() {
-    try {
-        await fs.mkdir(DATA_DIR, { recursive: true })
-        await fs.access(FILE)
-    } catch {
-        const init: Db = { scores: [] }
-        await fs.writeFile(FILE, JSON.stringify(init, null, 2), 'utf8')
-    }
+type StoreShape = {
+  data: Map<string, LeaderboardEntry[]>
 }
 
-export async function readDb(): Promise<Db> {
-    await ensureFile()
-    const raw = await fs.readFile(FILE, 'utf8')
-    return JSON.parse(raw) as Db
+const KEY = '__illusion_arc_leaderboard_store__'
+
+function getStore(): StoreShape {
+  const g = globalThis as any
+  if (!g[KEY]) {
+    g[KEY] = { data: new Map<string, LeaderboardEntry[]>() } as StoreShape
+  }
+  return g[KEY] as StoreShape
 }
 
-export async function writeDb(db: Db) {
-    await ensureFile()
-    await fs.writeFile(FILE, JSON.stringify(db, null, 2), 'utf8')
+export function submitScoreToStore(gameSlug: string, entry: LeaderboardEntry, maxKeep = 200) {
+  const store = getStore()
+  const list = store.data.get(gameSlug) ?? []
+  list.push(entry)
+
+  // Keep best scores first (desc)
+  list.sort((a, b) => b.score - a.score || b.createdAt - a.createdAt)
+
+  // Trim
+  if (list.length > maxKeep) list.length = maxKeep
+
+  store.data.set(gameSlug, list)
 }
 
-export function topScores(scores: ScoreRow[], limit = 50) {
-    return scores
-        .slice()
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit)
+export function getTopFromStore(gameSlug: string, limit = 10): LeaderboardEntry[] {
+  const store = getStore()
+  const list = store.data.get(gameSlug) ?? []
+  return list.slice(0, Math.max(1, Math.min(limit, 50)))
 }

@@ -20,7 +20,7 @@
             Contact
           </UButton>
 
-          <!-- Mobile menu (simple for Step 1; we’ll animate it later) -->
+          <!-- Mobile menu -->
           <UButton class="md:hidden" variant="ghost" @click="open = true">
             <UIcon name="i-heroicons-bars-3" />
           </UButton>
@@ -40,7 +40,6 @@
         </div>
       </template>
     </USlideover>
-
 
     <!-- Page -->
     <main class="flex-1">
@@ -75,6 +74,9 @@
         </div>
       </UContainer>
     </footer>
+
+    <!-- Install Button overlay -->
+    <InstallPwaButton />
   </div>
 </template>
 

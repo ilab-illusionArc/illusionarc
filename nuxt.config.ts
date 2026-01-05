@@ -8,7 +8,8 @@ export default defineNuxtConfig({
     '@nuxt/hints',
     '@nuxt/image',
     '@nuxt/scripts',
-    '@nuxt/ui'
+    '@nuxt/ui',
+    '@vite-pwa/nuxt',
   ],
   css: ['~/assets/css/main.css'],
   app: {
@@ -33,4 +34,32 @@ export default defineNuxtConfig({
   ui: {
     // keep defaults for now; we’ll theme components more in later steps
   },
+  pwa: {
+    registerType: 'autoUpdate',
+
+    // Put these files in /public (see next section)
+    includeAssets: [
+      'favicon.ico',
+      'apple-touch-icon.png',
+      'android-chrome-192x192.png',
+      'android-chrome-512x512.png',
+      'android-chrome-512x512.png'
+    ],
+
+    manifest: {
+      name: 'illusion Arc',
+      short_name: 'iArc',
+      description: 'illusion Arc - Play Free Arcade Games Online',
+      start_url: '/',
+      scope: '/',
+      display: 'standalone',
+      background_color: '#402a71',
+      theme_color: '#402a71',
+      icons: [
+        { src: '/android-chrome-192x192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/android-chrome-512x512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/android-chrome-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+      ]
+    }
+  }
 })

@@ -20,6 +20,11 @@
             Contact
           </UButton>
 
+          <!-- ✅ Avatar / Login (desktop) -->
+          <div class="hidden md:block">
+            <UserMenu />
+          </div>
+
           <!-- Mobile menu -->
           <UButton class="md:hidden" variant="ghost" @click="open = true">
             <UIcon name="i-heroicons-bars-3" />
@@ -32,6 +37,64 @@
     <USlideover v-model:open="open">
       <template #body>
         <div class="p-4 flex flex-col gap-2">
+          <!-- ✅ Avatar/Login inside drawer -->
+          <div class="pb-2 border-b border-white/10">
+            <!-- Logged out -->
+            <UButton
+              v-if="!user"
+              color="primary"
+              variant="soft"
+              to="/login"
+              icon="i-heroicons-lock-closed"
+              @click="open = false"
+              class="w-full justify-center"
+            >
+              Login
+            </UButton>
+
+            <!-- Logged in -->
+            <div v-else class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <div class="h-10 w-10 overflow-hidden rounded-full border border-white/10 bg-white/5">
+                  <img
+                    v-if="avatarUrl"
+                    :src="avatarUrl"
+                    alt="Avatar"
+                    class="h-full w-full object-cover"
+                    referrerpolicy="no-referrer"
+                  />
+                  <div v-else class="h-full w-full grid place-items-center text-sm font-semibold opacity-90">
+                    {{ initials }}
+                  </div>
+                </div>
+
+                <div class="leading-tight">
+                  <div class="text-sm font-semibold">{{ displayName }}</div>
+                  <div class="text-xs opacity-70">Account</div>
+                </div>
+              </div>
+
+              <UButton
+                variant="ghost"
+                icon="i-heroicons-arrow-right-on-rectangle"
+                @click="logout"
+              >
+                Logout
+              </UButton>
+            </div>
+
+            <UButton
+              v-if="user"
+              variant="ghost"
+              icon="i-heroicons-user-circle"
+              to="/profile"
+              class="mt-2 w-full justify-start"
+              @click="open = false"
+            >
+              Edit Profile
+            </UButton>
+          </div>
+
           <UButton variant="ghost" to="/work" @click="open=false">Work</UButton>
           <UButton variant="ghost" to="/services" @click="open=false">Services</UButton>
           <UButton variant="ghost" to="/arcade" @click="open=false">Arcade</UButton>
@@ -81,5 +144,43 @@
 </template>
 
 <script setup lang="ts">
+import UserMenu from '@/components/nav/UserMenu.vue'
+
 const open = ref(false)
+
+// Mobile drawer user info
+const user = useSupabaseUser()
+const supabase = useSupabaseClient()
+const toast = useToast()
+
+const displayName = computed(() => {
+  const u: any = user.value
+  return (
+    u?.user_metadata?.display_name ||
+    u?.user_metadata?.full_name ||
+    u?.email?.split?.('@')?.[0] ||
+    'Player'
+  )
+})
+
+const avatarUrl = computed(() => {
+  const u: any = user.value
+  return u?.user_metadata?.avatar_url || ''
+})
+
+const initials = computed(() => {
+  const n = (displayName.value || '').trim()
+  return n ? n.slice(0, 1).toUpperCase() : 'U'
+})
+
+async function logout() {
+  try {
+    await supabase.auth.signOut()
+    toast.add({ title: 'Logged out', color: 'success' })
+    open.value = false
+    await navigateTo('/', { replace: true })
+  } catch (e: any) {
+    toast.add({ title: 'Logout failed', description: e?.message || '', color: 'error' })
+  }
+}
 </script>

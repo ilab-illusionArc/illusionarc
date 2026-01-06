@@ -3,9 +3,15 @@ import { GAMES } from '@/data/games'
 import GamePlayer from '@/components/arcade/GamePlayer.vue'
 import TopScoresPanel from '@/components/arcade/TopScoresPanel.vue'
 
+definePageMeta({
+  middleware: ['require-play-auth'] // ✅ only blocks when URL has ?play=1
+})
+
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+
+const user = useSupabaseUser() // ✅
 
 const slug = computed(() => String(route.params.gameSlug || ''))
 const game = computed(() => GAMES.find((g) => g.slug === slug.value))
@@ -60,17 +66,27 @@ const playerKey = ref(0)
 const playerRef = ref<InstanceType<typeof GamePlayer> | null>(null)
 
 function openPlay() {
+  // ✅ Only gate on clicking Play (and direct ?play=1 is gated by middleware)
+  if (!user.value) {
+    const next = router.resolve({ path: route.path, query: { ...route.query, play: '1' } }).href
+    toast.add({ title: 'Login required', description: 'Please login to play.', color: 'info' })
+    return navigateTo({ path: '/login', query: { next } })
+  }
+
   router.push({ query: { ...route.query, play: '1' } })
 }
+
 function closePlay() {
   const q: Record<string, any> = { ...route.query }
   delete q.play
   router.replace({ query: q })
 }
+
 function requestFullscreen() {
   if (!showFullscreen.value) return
   playerRef.value?.requestFullscreen?.()
 }
+
 function hardStop() {
   playerRef.value?.stop?.()
   playerKey.value++
@@ -126,7 +142,6 @@ async function copy(text: string) {
     await navigator.clipboard.writeText(text)
     toast.add({ title: 'Copied!', description: 'Copied to clipboard.', color: 'success' })
   } catch {
-    // fallback (Safari sometimes blocks clipboard)
     prompt('Copy this:', text)
   }
 }
@@ -188,7 +203,6 @@ async function nativeShare() {
               />
             </div>
 
-            <!-- ✅ Description fills the empty area -->
             <div class="flex-1">
               <div class="text-sm opacity-80">
                 <b class="opacity-100">{{ Number(ratingValue).toFixed(1) }}</b>
@@ -196,10 +210,11 @@ async function nativeShare() {
               </div>
             </div>
           </div>
+
           <div class="flex-1">
             <p class="mt-2 text-sm opacity-80 leading-relaxed">
-                {{ game!.description || game!.shortPitch }}
-              </p>
+              {{ game!.description || game!.shortPitch }}
+            </p>
           </div>
 
           <!-- Actions -->
@@ -233,7 +248,7 @@ async function nativeShare() {
       </div>
     </UCard>
 
-    <!-- ✅ Share / Embed section -->
+    <!-- Share / Embed -->
     <UCard v-if="game!.embedAllowed" class="mt-6 bg-white/5 border-white/10">
       <template #header>
         <div class="text-lg font-semibold">Share & Embed</div>
@@ -281,13 +296,12 @@ async function nativeShare() {
         </UCard>
       </div>
 
-      <!-- ✅ Prevent SSR refresh errors -->
       <ClientOnly>
         <TopScoresPanel v-if="game!.leaderboard" :game-slug="game!.slug" :limit="10" />
       </ClientOnly>
     </div>
 
-    <!-- Controls Modal (✅ remove footer Close button, add header close icon) -->
+    <!-- Controls Modal -->
     <UModal v-model="showControls">
       <UCard class="mt-6 bg-white/5 border-white/10">
         <template #header>

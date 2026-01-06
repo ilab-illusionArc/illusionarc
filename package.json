@@ -15,6 +15,7 @@
     "@nuxt/image": "^2.0.0",
     "@nuxt/scripts": "^0.13.2",
     "@nuxt/ui": "^4.3.0",
+    "@nuxtjs/supabase": "^2.0.3",
     "@unhead/vue": "^2.1.1",
     "@vite-pwa/nuxt": "^1.1.0",
     "eslint": "^9.39.2",

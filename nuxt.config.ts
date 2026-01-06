@@ -10,6 +10,7 @@ export default defineNuxtConfig({
     '@nuxt/scripts',
     '@nuxt/ui',
     '@vite-pwa/nuxt',
+    '@nuxtjs/supabase'
   ],
   css: ['~/assets/css/main.css'],
   app: {
@@ -60,6 +61,16 @@ export default defineNuxtConfig({
         { src: '/pwa//android-chrome-512x512.png', sizes: '512x512', type: 'image/png' },
         { src: '/pwa//android-chrome-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
       ]
+    }
+  },
+  supabase: {
+    useSsrCookies: true,
+    redirect: false // ✅ IMPORTANT: prevents redirecting every route to /login
+  },
+  runtimeConfig: {
+    supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    public: {
+      supabaseUrl: process.env.SUPABASE_URL
     }
   }
 })

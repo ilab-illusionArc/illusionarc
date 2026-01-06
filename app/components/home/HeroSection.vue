@@ -49,17 +49,9 @@ const stats = [
 
         <!-- Right visual -->
         <div class="relative" data-reveal>
-          <NuxtImg
-              :src="PLACEHOLDER_IMG"
-              alt="Illusion Arc hero placeholder"
-              width="1200"
-              height="800"
-              sizes="(max-width: 768px) 100vw, 560px"
-              format="webp"
-              preload
-              fetchpriority="high"
-              class="h-[320px] md:h-[520px] w-full object-cover rounded-3xl border border-white/10 bg-white/5 shadow-2xl"
-          />
+         <ClientOnly>
+          <HeroOrb />
+        </ClientOnly>
 
 
           <!-- Glow edge -->

@@ -5,7 +5,7 @@
       <UContainer class="py-3 flex items-center justify-between gap-3">
         <NuxtLink to="/" class="flex items-center gap-2">
           <UIcon name="i-heroicons-sparkles" class="text-xl" />
-          <span class="font-semibold tracking-wide">Illusion Arc</span>
+          <span class="font-semibold tracking-wide">illusion Arc</span>
         </NuxtLink>
 
         <nav class="hidden md:flex items-center gap-1">

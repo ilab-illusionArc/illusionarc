@@ -63,5 +63,24 @@ export const GAMES: ArcadeGame[] = [
     genre: 'Shooter',
     difficulty: 'Medium',
     estTime: '60s'
+  },
+  {
+    name: 'Neon Polarity',
+    slug: 'neon-polarity',
+    thumbnail: PLACEHOLDER_IMG,
+    shortPitch: 'Neon reflex boss fights. Tap fast, survive longer, post score.',
+    description:
+      'Face fast-paced neon bosses with simple tap controls. Survive longer to increase score, dodge patterns, and climb the global leaderboard. Best experienced in landscape on mobile.',
+    controls: ['Tap / click to dodge', 'Survive as long as possible'],
+    buildType: 'iframe',
+    sourceUrl: '/games/neon-polarity/index.html',
+    embedAllowed: true,
+    embed: { aspectRatio: '16/9', minHeight: 520, orientation: 'landscape' },
+    leaderboard: true,
+    rating: { value: 4.6, count: 1280 },
+    featured: false,
+    genre: 'Shooter',
+    difficulty: 'Medium',
+    estTime: '60s'
   }
 ]

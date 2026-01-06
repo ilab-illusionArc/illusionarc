@@ -29,7 +29,7 @@ export const GAMES: ArcadeGame[] = [
   {
     name: 'Boss Rush',
     slug: 'boss-rush',
-    thumbnail: '/img/boss-rush-thumbnail.png',
+    thumbnail: '/img/boss-rush/boss-rush-thumbnail.png',
     shortPitch: 'Neon reflex boss fights. Tap fast, survive longer, post score.',
     description:
       'Face fast-paced neon bosses with simple tap controls. Survive longer to increase score, dodge patterns, and climb the global leaderboard. Best experienced in landscape on mobile.',
@@ -48,7 +48,7 @@ export const GAMES: ArcadeGame[] = [
   {
     name: 'Blink Maze',
     slug: 'blink-maze',
-    thumbnail: PLACEHOLDER_IMG,
+    thumbnail: '/img/blink-maze/blink-maze-thumbnail.jpeg',
     shortPitch: 'Neon reflex boss fights. Tap fast, survive longer, post score.',
     description:
       'Face fast-paced neon bosses with simple tap controls. Survive longer to increase score, dodge patterns, and climb the global leaderboard. Best experienced in landscape on mobile.',
@@ -67,7 +67,7 @@ export const GAMES: ArcadeGame[] = [
   {
     name: 'Neon Polarity',
     slug: 'neon-polarity',
-    thumbnail: PLACEHOLDER_IMG,
+    thumbnail: '/img/neon-polarity/neon-polarity-thumbnail.png',
     shortPitch: 'Neon reflex boss fights. Tap fast, survive longer, post score.',
     description:
       'Face fast-paced neon bosses with simple tap controls. Survive longer to increase score, dodge patterns, and climb the global leaderboard. Best experienced in landscape on mobile.',

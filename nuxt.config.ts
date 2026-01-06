@@ -39,11 +39,11 @@ export default defineNuxtConfig({
 
     // Put these files in /public (see next section)
     includeAssets: [
-      'favicon.ico',
-      'apple-touch-icon.png',
-      'android-chrome-192x192.png',
-      'android-chrome-512x512.png',
-      'android-chrome-512x512.png'
+      '/pwa/favicon.ico',
+      '/pwa/apple-touch-icon.png',
+      '/pwa/android-chrome-192x192.png',
+      '/pwa/android-chrome-512x512.png',
+      '/pwa/android-chrome-512x512.png'
     ],
 
     manifest: {
@@ -56,9 +56,9 @@ export default defineNuxtConfig({
       background_color: '#402a71',
       theme_color: '#402a71',
       icons: [
-        { src: '/android-chrome-192x192.png', sizes: '192x192', type: 'image/png' },
-        { src: '/android-chrome-512x512.png', sizes: '512x512', type: 'image/png' },
-        { src: '/android-chrome-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+        { src: '/pwa/android-chrome-192x192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/pwa//android-chrome-512x512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/pwa//android-chrome-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
       ]
     }
   }

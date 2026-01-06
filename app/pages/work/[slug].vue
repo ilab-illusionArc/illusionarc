@@ -92,15 +92,16 @@ useHead(() => ({
               class="rounded-2xl border border-white/10 bg-white/5 overflow-hidden"
           >
             <NuxtImg
-                v-if="m.type === 'image'"
-                :src="m.src || PLACEHOLDER_IMG"
-                :alt="m.alt || `${item!.title} image ${i + 1}`"
-                width="1600"
-                height="1000"
-                sizes="(max-width: 768px) 100vw, 420px"
-                class="h-48 w-full object-cover"
-                loading="lazy"
+              v-if="m.type === 'image'"
+              :src="m.src || PLACEHOLDER_IMG"
+              :alt="m.alt || `${item?.title} image ${i + 1}`"
+              width="720"
+              height="1080"
+              sizes="(max-width: 768px) 100vw, 420px"
+              class="w-full aspect-[2/3] object-cover"
+              loading="lazy"
             />
+
             <div v-else class="p-4 text-sm opacity-70">
               Video item (we’ll handle in later step)
             </div>

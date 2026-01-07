@@ -16,6 +16,9 @@ const loading = ref(false)
 const mode = ref<'signin' | 'signup'>('signin')
 const showPass = ref(false)
 
+// ✅ NEW: display name (signup only, optional)
+const displayName = ref('')
+
 const nextUrl = computed(() => {
   const n = route.query.next
   return typeof n === 'string' && n.startsWith('/') ? n : '/arcade'
@@ -33,6 +36,38 @@ function isEmailValid(v: string) {
 const canSubmit = computed(() => {
   return isEmailValid(email.value) && password.value.length >= 6 && !loading.value
 })
+
+// ✅ Random display name generator
+function randomDisplayName() {
+  const a = ['Neon', 'Turbo', 'Shadow', 'Nova', 'Pixel', 'Arc', 'Blaze', 'Frost', 'Cosmic', 'Hyper']
+  const b = ['Rider', 'Knight', 'Hunter', 'Pilot', 'Ninja', 'Wizard', 'Boss', 'Runner', 'Samurai', 'Rogue']
+  const n = Math.floor(1000 + Math.random() * 9000)
+  return `${a[Math.floor(Math.random() * a.length)]}${b[Math.floor(Math.random() * b.length)]}${n}`
+}
+
+function normalizeDisplayName(v: string) {
+  const s = String(v || '').trim().replace(/\s+/g, ' ')
+  return s.slice(0, 32)
+}
+
+async function ensureDisplayNameAfterLogin() {
+  // called after sign in to "heal" old accounts
+  const u: any = user.value
+  if (!u?.id) return
+
+  const md = u.user_metadata || {}
+  const dn = normalizeDisplayName(md.display_name || md.full_name || md.name || '')
+  if (dn) return
+
+  const fallback = randomDisplayName()
+  const { error } = await supabase.auth.updateUser({
+    data: { display_name: fallback }
+  })
+  if (error) {
+    // non-blocking
+    console.warn('Failed to set display_name:', error.message)
+  }
+}
 
 async function submit() {
   if (!email.value.trim() || !password.value) {
@@ -56,17 +91,29 @@ async function submit() {
         password: password.value
       })
       if (error) throw error
+
+      // ✅ ensure display name exists for older accounts
+      await ensureDisplayNameAfterLogin()
+
       toast.add({ title: 'Welcome back', description: 'Logged in successfully.', color: 'success' })
     } else {
+      // ✅ ALWAYS set display_name on signup (random if empty)
+      const dn = normalizeDisplayName(displayName.value) || randomDisplayName()
+
       const { error } = await supabase.auth.signUp({
         email: email.value.trim(),
-        password: password.value
+        password: password.value,
+        options: {
+          data: {
+            display_name: dn
+          }
+        }
       })
       if (error) throw error
 
       toast.add({
         title: 'Account created',
-        description: 'If email confirmation is enabled, please check your inbox.',
+        description: `Welcome, ${dn}! If email confirmation is enabled, please check your inbox.`,
         color: 'success'
       })
     }
@@ -105,7 +152,9 @@ function continueBrowsing() {
       <div class="grid gap-8 lg:grid-cols-2 items-center">
         <!-- Left: Brand panel -->
         <div class="max-w-xl">
-          <div class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs opacity-90">
+          <div
+              class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs opacity-90"
+          >
             <UIcon name="i-heroicons-lock-closed" class="w-4 h-4" />
             Login required to play games
           </div>
@@ -176,20 +225,10 @@ function continueBrowsing() {
                 </div>
 
                 <div class="toggle">
-                  <button
-                    class="pill"
-                    :class="{ on: mode === 'signin' }"
-                    type="button"
-                    @click="mode = 'signin'"
-                  >
+                  <button class="pill" :class="{ on: mode === 'signin' }" type="button" @click="mode = 'signin'">
                     Login
                   </button>
-                  <button
-                    class="pill"
-                    :class="{ on: mode === 'signup' }"
-                    type="button"
-                    @click="mode = 'signup'"
-                  >
+                  <button class="pill" :class="{ on: mode === 'signup' }" type="button" @click="mode = 'signup'">
                     Sign up
                   </button>
                 </div>
@@ -199,21 +238,29 @@ function continueBrowsing() {
             <div class="cardBody">
               <div class="grid gap-4">
                 <UFormGroup label="Email" required>
+                  <UInput v-model="email" placeholder="you@email.com" autocomplete="email" icon="i-heroicons-envelope" />
+                </UFormGroup>
+
+                <!-- ✅ NEW: Display name only on signup -->
+                <UFormGroup v-if="mode === 'signup'" label="Display name (optional)">
                   <UInput
-                    v-model="email"
-                    placeholder="you@email.com"
-                    autocomplete="email"
-                    icon="i-heroicons-envelope"
+                      v-model="displayName"
+                      placeholder="e.g. Souvik / NeonRider1234"
+                      autocomplete="nickname"
+                      icon="i-heroicons-user"
                   />
+                  <div class="mt-1 text-xs opacity-60">
+                    Leave empty to auto-generate a fun name.
+                  </div>
                 </UFormGroup>
 
                 <UFormGroup label="Password" required>
                   <UInput
-                    v-model="password"
-                    :type="showPass ? 'text' : 'password'"
-                    placeholder="••••••••"
-                    autocomplete="current-password"
-                    icon="i-heroicons-key"
+                      v-model="password"
+                      :type="showPass ? 'text' : 'password'"
+                      placeholder="••••••••"
+                      :autocomplete="mode === 'signin' ? 'current-password' : 'new-password'"
+                      icon="i-heroicons-key"
                   />
                   <div class="mt-2 flex items-center justify-between">
                     <UButton size="xs" variant="ghost" @click="showPass = !showPass">
@@ -221,30 +268,24 @@ function continueBrowsing() {
                       {{ showPass ? 'Hide' : 'Show' }}
                     </UButton>
 
-                    <div class="text-xs opacity-60">
-                      Min 6 chars
-                    </div>
+                    <div class="text-xs opacity-60">Min 6 chars</div>
                   </div>
                 </UFormGroup>
 
                 <div class="grid gap-2 sm:grid-cols-2">
                   <UButton
-                    color="primary"
-                    variant="solid"
-                    size="lg"
-                    :loading="loading"
-                    :disabled="!canSubmit"
-                    @click="submit"
+                      color="primary"
+                      variant="solid"
+                      size="lg"
+                      :loading="loading"
+                      :disabled="!canSubmit"
+                      @click="submit"
                   >
                     <UIcon name="i-heroicons-arrow-right-circle" class="w-5 h-5" />
                     {{ mode === 'signin' ? 'Login' : 'Create account' }}
                   </UButton>
 
-                  <UButton
-                    variant="soft"
-                    size="lg"
-                    @click="continueBrowsing"
-                  >
+                  <UButton variant="soft" size="lg" @click="continueBrowsing">
                     <UIcon name="i-heroicons-home" class="w-5 h-5" />
                     Continue browsing
                   </UButton>
@@ -274,10 +315,10 @@ function continueBrowsing() {
 <style scoped>
 .wash{
   background:
-    radial-gradient(900px 600px at 15% 20%, rgba(34,211,238,.12), transparent 60%),
-    radial-gradient(900px 600px at 85% 30%, rgba(168,85,247,.14), transparent 60%),
-    radial-gradient(900px 700px at 55% 90%, rgba(16,185,129,.10), transparent 60%),
-    linear-gradient(to bottom, rgba(255,255,255,.04), transparent 30%, rgba(255,255,255,.02));
+      radial-gradient(900px 600px at 15% 20%, rgba(34,211,238,.12), transparent 60%),
+      radial-gradient(900px 600px at 85% 30%, rgba(168,85,247,.14), transparent 60%),
+      radial-gradient(900px 700px at 55% 90%, rgba(16,185,129,.10), transparent 60%),
+      linear-gradient(to bottom, rgba(255,255,255,.04), transparent 30%, rgba(255,255,255,.02));
 }
 .noise{
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");

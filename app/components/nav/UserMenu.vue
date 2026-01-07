@@ -3,6 +3,23 @@ const user = useSupabaseUser()
 const supabase = useSupabaseClient()
 const toast = useToast()
 
+watch(
+    () => user.value?.id,
+    async () => {
+      const u: any = user.value
+      if (!u?.id) return
+
+      const dn = u?.user_metadata?.display_name
+      if (dn && String(dn).trim()) return
+
+      await supabase.auth.updateUser({
+        data: { display_name: randomDisplayName() }
+      })
+    },
+    { immediate: true }
+)
+
+
 const displayName = computed(() => {
   const u: any = user.value
   return (

@@ -2,45 +2,55 @@
 import { readBody, createError } from 'h3'
 import { serverSupabaseClient } from '#supabase/server'
 
+function resolveDisplayName(user: any) {
+  const md = user?.user_metadata || {}
+  const fromMeta =
+      md.display_name ||
+      md.full_name ||
+      md.name ||
+      md.user_name ||
+      ''
+
+  const fromEmail = user?.email?.split?.('@')?.[0] || ''
+  const name = String(fromMeta || fromEmail || 'Player').trim()
+  return name.slice(0, 32)
+}
+
 export default defineEventHandler(async (event) => {
   const client = await serverSupabaseClient(event)
 
-  // ✅ Use getUser() (reliable in your setup)
-  const { data, error: userErr } = await client.auth.getUser()
-  const user = data?.user
+  // ✅ use cookies session on server
+  const { data: auth, error: authErr } = await client.auth.getUser()
+  const user = auth?.user
 
-  if (userErr) {
-    // optional: log for debugging
-    console.error('[leaderboard/submit] getUser error:', userErr)
-  }
-
-  if (!user?.id) {
+  if (authErr || !user?.id) {
     throw createError({ statusCode: 401, statusMessage: 'Login required' })
   }
 
   const body = await readBody(event)
 
   const gameSlug = String(body?.gameSlug ?? '').trim()
-  const player = String(body?.player ?? 'Player').trim().slice(0, 32)
   const scoreRaw = Number(body?.score ?? 0)
   const score = Number.isFinite(scoreRaw) ? Math.max(0, Math.floor(scoreRaw)) : 0
 
   if (!gameSlug) throw createError({ statusCode: 400, statusMessage: 'Missing gameSlug' })
 
+  const playerName = resolveDisplayName(user)
+
   const payload = {
     game_slug: gameSlug,
     user_id: user.id,
-    player_name: player || 'Player',
+    player_name: playerName,
     score
   }
 
-  // ✅ Cast to any if your Supabase types aren't generated yet
-  const { error } = await (client.from('leaderboard_scores') as any).insert(payload)
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-expect-error (supabase types in Nuxt sometimes infer never)
+  const { error } = await client.from('leaderboard_scores').insert(payload)
 
   if (error) {
-    console.error('[leaderboard/submit] insert error:', error)
     throw createError({ statusCode: 500, statusMessage: error.message })
   }
 
-  return { ok: true }
+  return { ok: true, playerName }
 })

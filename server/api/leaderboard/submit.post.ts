@@ -1,8 +1,15 @@
 // server/api/leaderboard/submit.post.ts
-import { submitScoreToStore } from '../../../server/utils/leaderboardStore'
+import { readBody, createError } from 'h3'
+import { serverSupabaseUser, serverSupabaseClient } from '#supabase/server'
 
 export default defineEventHandler(async (event) => {
   try {
+    // ✅ require logged-in user
+    const user = await serverSupabaseUser(event)
+    if (!user) {
+      throw createError({ statusCode: 401, statusMessage: 'Login required' })
+    }
+
     const body = await readBody(event)
 
     const gameSlug = String(body?.gameSlug ?? '').trim()
@@ -11,12 +18,27 @@ export default defineEventHandler(async (event) => {
     const score = Number.isFinite(scoreRaw) ? Math.max(0, Math.floor(scoreRaw)) : 0
 
     if (!gameSlug) {
-      return { ok: false, error: 'Missing gameSlug' }
+      throw createError({ statusCode: 400, statusMessage: 'Missing gameSlug' })
     }
 
-    submitScoreToStore(gameSlug, { player: player || 'Player', score, createdAt: Date.now() })
+    const supabase = await serverSupabaseClient(event)
+
+    const { error } = await supabase.from('leaderboard_scores').insert({
+      game_slug: gameSlug,
+      user_id: user.id,
+      player_name: player,
+      score
+    } as any)
+
+    if (error) {
+      console.error('[leaderboard submit] supabase error:', error)
+      throw createError({ statusCode: 500, statusMessage: error.message })
+    }
+
     return { ok: true }
   } catch (e: any) {
-    return { ok: false, error: 'Failed to submit score' }
+    // Keep response shape consistent with your old code
+    const msg = e?.statusMessage || e?.message || 'Failed to submit score'
+    return { ok: false, error: msg }
   }
 })

@@ -42,11 +42,26 @@ async function onScore(score: number) {
   lastScore.value = score
   saving.value = true
   try {
-    await submitScore({ gameSlug: game.value!.slug, player: playerName.value, score, source: 'arcade' })
+    await $fetch('/api/leaderboard/submit', {
+      method: 'POST',
+      body: {
+        gameSlug: game.value!.slug,
+        score,
+        playerName: playerName.value
+      }
+    })
+    toast.add({ title: 'Score saved', color: 'success' })
+  } catch (e: any) {
+    toast.add({
+      title: 'Failed to save score',
+      description: e?.data?.message || e?.message || 'Try again',
+      color: 'error'
+    })
   } finally {
     saving.value = false
   }
 }
+
 
 // lobby state
 const liked = ref(false)

@@ -41,26 +41,36 @@ const saving = ref(false)
 async function onScore(score: number) {
   lastScore.value = score
   saving.value = true
+
   try {
     await $fetch('/api/leaderboard/submit', {
       method: 'POST',
+      credentials: 'include', // ✅ important for auth cookies (Safari / some setups)
       body: {
         gameSlug: game.value!.slug,
         score,
-        playerName: playerName.value
+        player: playerName.value
       }
     })
+
     toast.add({ title: 'Score saved', color: 'success' })
   } catch (e: any) {
+    // ✅ if server returns 401, push user to login (only for play/score actions)
+    if (e?.statusCode === 401) {
+      toast.add({ title: 'Login required', description: 'Please login to save your score.', color: 'warning' })
+      return navigateTo(`/login?next=${encodeURIComponent(route.fullPath)}`)
+    }
+
     toast.add({
       title: 'Failed to save score',
-      description: e?.data?.message || e?.message || 'Try again',
+      description: e?.data?.statusMessage || e?.data?.message || e?.message || 'Try again',
       color: 'error'
     })
   } finally {
     saving.value = false
   }
 }
+
 
 
 // lobby state

@@ -3,26 +3,48 @@ import { GAMES } from '@/data/games'
 
 const route = useRoute()
 
+useHead({ title: 'Leaderboard' })
+
+const selected = ref<string>('') // "" = All Games
+const limit = ref<number>(50)
+
 onMounted(() => {
   const q = route.query.game
   if (typeof q === 'string') selected.value = q
 })
 
-useHead({ title: 'Leaderboard' })
-
-const { getTop } = useLeaderboard()
-
-const selected = ref<string>('') // "" = global
-const limit = ref(50)
-
 const loading = ref(true)
-const rows = ref<any[]>([])
+const rows = ref<Array<{ id: any; player: string; gameSlug: string; score: number; createdAt: string }>>([])
+
+const gameNameBySlug = computed(() => {
+  const map: Record<string, string> = {}
+  for (const g of GAMES) map[g.slug] = g.name
+  return map
+})
+
+function clampLimit(n: number) {
+  if (!Number.isFinite(n)) return 50
+  return Math.max(1, Math.min(Math.floor(n), 200))
+}
 
 async function load() {
   loading.value = true
-  const res: any = await getTop(selected.value || undefined, limit.value)
-  rows.value = res.top || []
-  loading.value = false
+  try {
+    const res: any = await $fetch('/api/leaderboard/get', {
+      method: 'GET',
+      query: {
+        // ✅ if empty => All Games (API must support it)
+        ...(selected.value ? { gameSlug: selected.value } : {}),
+        limit: clampLimit(limit.value)
+      }
+    })
+
+    rows.value = Array.isArray(res?.items) ? res.items : []
+  } catch (e) {
+    rows.value = []
+  } finally {
+    loading.value = false
+  }
 }
 
 watch([selected, limit], load, { immediate: true })
@@ -71,19 +93,22 @@ watch([selected, limit], load, { immediate: true })
           <tbody>
           <tr
               v-for="(r, i) in rows"
-              :key="r.id"
+              :key="r.id ?? `${r.gameSlug}_${r.player}_${r.score}_${r.createdAt}_${i}`"
               class="border-b border-white/5 hover:bg-white/5"
           >
             <td class="py-3 pr-3 opacity-70">{{ i + 1 }}</td>
             <td class="py-3 pr-3 font-medium">{{ r.player }}</td>
+
             <td class="py-3 pr-3">
               <NuxtLink class="underline opacity-90 hover:opacity-100" :to="`/arcade/${r.gameSlug}`">
-                {{ r.gameSlug }}
+                {{ gameNameBySlug[r.gameSlug] || r.gameSlug }}
               </NuxtLink>
             </td>
+
             <td class="py-3 pr-3 font-semibold">{{ r.score }}</td>
+
             <td class="py-3 pr-3 opacity-70">
-              {{ new Date(r.createdAt).toLocaleString() }}
+              {{ r.createdAt ? new Date(r.createdAt).toLocaleString() : '' }}
             </td>
           </tr>
 

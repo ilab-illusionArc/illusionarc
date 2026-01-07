@@ -68,7 +68,7 @@ export default defineNuxtConfig({
     redirect: false // ✅ IMPORTANT: prevents redirecting every route to /login
   },
   runtimeConfig: {
-    supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    supabaseServiceRoleKey: process.env.SUPABASE_KEY,
     public: {
       supabaseUrl: process.env.SUPABASE_URL
     }

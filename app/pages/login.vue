@@ -16,7 +16,7 @@ const loading = ref(false)
 const mode = ref<'signin' | 'signup'>('signin')
 const showPass = ref(false)
 
-// ✅ NEW: display name (signup only, optional)
+// Display name (signup only, optional)
 const displayName = ref('')
 
 const nextUrl = computed(() => {
@@ -33,11 +33,14 @@ function isEmailValid(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
 }
 
-const canSubmit = computed(() => {
-  return isEmailValid(email.value) && password.value.length >= 6 && !loading.value
-})
+function normalizeDisplayName(v: string) {
+  const s = String(v || '').trim().replace(/\s+/g, ' ')
+  // allow letters, numbers, space, underscore, dash
+  const cleaned = s.replace(/[^\p{L}\p{N} _-]/gu, '')
+  return cleaned.slice(0, 24) // keep short for UI
+}
 
-// ✅ Random display name generator
+// Random display name generator (fun + short)
 function randomDisplayName() {
   const a = ['Neon', 'Turbo', 'Shadow', 'Nova', 'Pixel', 'Arc', 'Blaze', 'Frost', 'Cosmic', 'Hyper']
   const b = ['Rider', 'Knight', 'Hunter', 'Pilot', 'Ninja', 'Wizard', 'Boss', 'Runner', 'Samurai', 'Rogue']
@@ -45,27 +48,110 @@ function randomDisplayName() {
   return `${a[Math.floor(Math.random() * a.length)]}${b[Math.floor(Math.random() * b.length)]}${n}`
 }
 
-function normalizeDisplayName(v: string) {
-  const s = String(v || '').trim().replace(/\s+/g, ' ')
-  return s.slice(0, 32)
+// Auto-generate a name when switching to signup (if empty)
+watch(
+  () => mode.value,
+  (m) => {
+    if (m === 'signup' && !displayName.value.trim()) {
+      displayName.value = randomDisplayName()
+    }
+  },
+  { immediate: true }
+)
+
+const canSubmit = computed(() => {
+  if (!isEmailValid(email.value)) return false
+  if (password.value.length < 6) return false
+  if (loading.value) return false
+  return true
+})
+
+/**
+ * Best-effort uniqueness check against Supabase `profiles` table.
+ * If your profiles table isn't there / RLS blocks select, it silently falls back.
+ */
+async function isDisplayNameTaken(name: string): Promise<boolean> {
+  if (!import.meta.client) return false
+  const n = normalizeDisplayName(name)
+  if (!n) return false
+
+  try {
+    // Use `as any` to avoid TS "never" issues if types aren't generated yet.
+    const client: any = supabase
+    const { data, error } = await client
+      .from('profiles')
+      .select('id')
+      .eq('display_name', n)
+      .limit(1)
+
+    if (error) return false // can't check => don't block signup
+    return Array.isArray(data) && data.length > 0
+  } catch {
+    return false
+  }
 }
 
+/**
+ * Ensure we have an available display name:
+ * - if user typed one and it is taken, we append random digits
+ * - if empty, we generate random
+ */
+async function pickUniqueDisplayName(preferred: string): Promise<string> {
+  let base = normalizeDisplayName(preferred) || normalizeDisplayName(randomDisplayName())
+  if (!base) base = 'Player' + Math.floor(1000 + Math.random() * 9000)
+
+  // Try a few times to avoid collisions
+  for (let i = 0; i < 7; i++) {
+    const taken = await isDisplayNameTaken(base)
+    if (!taken) return base
+    // mutate
+    base = `${base.slice(0, 18)}${Math.floor(10 + Math.random() * 90)}`
+  }
+  // final fallback
+  return `Player${Math.floor(100000 + Math.random() * 900000)}`
+}
+
+/**
+ * After signin: heal old accounts by setting display_name in user_metadata if missing.
+ * Refresh session so navbar updates immediately.
+ */
 async function ensureDisplayNameAfterLogin() {
-  // called after sign in to "heal" old accounts
   const u: any = user.value
   if (!u?.id) return
 
   const md = u.user_metadata || {}
-  const dn = normalizeDisplayName(md.display_name || md.full_name || md.name || '')
-  if (dn) return
+  const existing = normalizeDisplayName(md.display_name || md.full_name || md.name || '')
+  if (existing) return
 
-  const fallback = randomDisplayName()
-  const { error } = await supabase.auth.updateUser({
-    data: { display_name: fallback }
-  })
+  const dn = await pickUniqueDisplayName('')
+  const { error } = await supabase.auth.updateUser({ data: { display_name: dn } })
   if (error) {
-    // non-blocking
     console.warn('Failed to set display_name:', error.message)
+    return
+  }
+
+  // Refresh so UI updates without logout/login
+  await supabase.auth.refreshSession()
+}
+
+/**
+ * Optional: keep a profiles row in sync when session exists.
+ * If you don't have a `profiles` table, it will simply fail silently.
+ */
+async function upsertProfileIfPossible(dn: string) {
+  try {
+    const u: any = user.value
+    if (!u?.id) return
+    const client: any = supabase
+    // if table exists + RLS allows, this keeps it synced
+    await client.from('profiles').upsert({
+      id: u.id,
+      display_name: dn,
+      avatar_url: u.user_metadata?.avatar_url || null,
+      updated_at: new Date().toISOString()
+    })
+  } catch {
+    // ignore (table missing or RLS)
   }
 }
 
@@ -92,38 +178,50 @@ async function submit() {
       })
       if (error) throw error
 
-      // ✅ ensure display name exists for older accounts
       await ensureDisplayNameAfterLogin()
 
       toast.add({ title: 'Welcome back', description: 'Logged in successfully.', color: 'success' })
-    } else {
-      // ✅ ALWAYS set display_name on signup (random if empty)
-      const dn = normalizeDisplayName(displayName.value) || randomDisplayName()
-
-      const { error } = await supabase.auth.signUp({
-        email: email.value.trim(),
-        password: password.value,
-        options: {
-          data: {
-            display_name: dn
-          }
-        }
-      })
-      if (error) throw error
-
-      toast.add({
-        title: 'Account created',
-        description: `Welcome, ${dn}! If email confirmation is enabled, please check your inbox.`,
-        color: 'success'
-      })
+      await navigateTo(nextUrl.value, { replace: true })
+      return
     }
 
-    // go back to game-play URL
-    navigateTo(nextUrl.value, { replace: true })
+    // SIGNUP
+    const picked = await pickUniqueDisplayName(displayName.value)
+
+    const { data, error } = await supabase.auth.signUp({
+      email: email.value.trim(),
+      password: password.value,
+      options: {
+        data: { display_name: picked }
+      }
+    })
+    if (error) throw error
+
+    // If signup returns a session (email confirm off), user is logged in now.
+    // Sync profile if possible + refresh session (so UserMenu shows name immediately).
+    if (data?.session) {
+      await supabase.auth.refreshSession()
+      await upsertProfileIfPossible(picked)
+    }
+
+    toast.add({
+      title: 'Account created',
+      description: `Welcome, ${picked}! ${data?.session ? '' : 'If email confirmation is enabled, check your inbox.'}`,
+      color: 'success'
+    })
+
+    await navigateTo(nextUrl.value, { replace: true })
   } catch (e: any) {
+    // If your DB enforces uniqueness and still collided, you’ll often see 23505
+    const msg = String(e?.message || e?.error_description || '')
+    const friendly =
+      msg.includes('duplicate') || msg.includes('23505')
+        ? 'That display name is already taken. Try another one.'
+        : msg || 'Please try again.'
+
     toast.add({
       title: 'Auth failed',
-      description: e?.message || 'Please try again.',
+      description: friendly,
       color: 'error'
     })
   } finally {
@@ -152,16 +250,13 @@ function continueBrowsing() {
       <div class="grid gap-8 lg:grid-cols-2 items-center">
         <!-- Left: Brand panel -->
         <div class="max-w-xl">
-          <div
-              class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs opacity-90"
-          >
+          <div class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs opacity-90">
             <UIcon name="i-heroicons-lock-closed" class="w-4 h-4" />
             Login required to play games
           </div>
 
           <h1 class="mt-4 text-4xl md:text-6xl font-semibold tracking-tight">
-            Enter the
-            <span class="grad">Arcade</span>
+            Enter the <span class="grad">Arcade</span>
           </h1>
 
           <p class="mt-4 text-sm md:text-base opacity-80 leading-relaxed max-w-lg">
@@ -203,8 +298,7 @@ function continueBrowsing() {
           </div>
 
           <div class="mt-6 text-xs opacity-60">
-            After login you’ll return to:
-            <span class="opacity-100">{{ nextUrl }}</span>
+            After login you’ll return to: <span class="opacity-100">{{ nextUrl }}</span>
           </div>
         </div>
 
@@ -241,26 +335,29 @@ function continueBrowsing() {
                   <UInput v-model="email" placeholder="you@email.com" autocomplete="email" icon="i-heroicons-envelope" />
                 </UFormGroup>
 
-                <!-- ✅ NEW: Display name only on signup -->
+                <!-- Display name only on signup -->
                 <UFormGroup v-if="mode === 'signup'" label="Display name (optional)">
                   <UInput
-                      v-model="displayName"
-                      placeholder="e.g. Souvik / NeonRider1234"
-                      autocomplete="nickname"
-                      icon="i-heroicons-user"
+                    v-model="displayName"
+                    placeholder="e.g. Souvik / NeonRider1234"
+                    autocomplete="nickname"
+                    icon="i-heroicons-user"
                   />
-                  <div class="mt-1 text-xs opacity-60">
-                    Leave empty to auto-generate a fun name.
+                  <div class="mt-1 text-xs opacity-60 flex items-center justify-between">
+                    <span>Must be unique.</span>
+                    <UButton size="xs" variant="ghost" @click="displayName = randomDisplayName()">
+                      Random
+                    </UButton>
                   </div>
                 </UFormGroup>
 
                 <UFormGroup label="Password" required>
                   <UInput
-                      v-model="password"
-                      :type="showPass ? 'text' : 'password'"
-                      placeholder="••••••••"
-                      :autocomplete="mode === 'signin' ? 'current-password' : 'new-password'"
-                      icon="i-heroicons-key"
+                    v-model="password"
+                    :type="showPass ? 'text' : 'password'"
+                    placeholder="••••••••"
+                    :autocomplete="mode === 'signin' ? 'current-password' : 'new-password'"
+                    icon="i-heroicons-key"
                   />
                   <div class="mt-2 flex items-center justify-between">
                     <UButton size="xs" variant="ghost" @click="showPass = !showPass">
@@ -274,12 +371,12 @@ function continueBrowsing() {
 
                 <div class="grid gap-2 sm:grid-cols-2">
                   <UButton
-                      color="primary"
-                      variant="solid"
-                      size="lg"
-                      :loading="loading"
-                      :disabled="!canSubmit"
-                      @click="submit"
+                    color="primary"
+                    variant="solid"
+                    size="lg"
+                    :loading="loading"
+                    :disabled="!canSubmit"
+                    @click="submit"
                   >
                     <UIcon name="i-heroicons-arrow-right-circle" class="w-5 h-5" />
                     {{ mode === 'signin' ? 'Login' : 'Create account' }}
@@ -315,10 +412,10 @@ function continueBrowsing() {
 <style scoped>
 .wash{
   background:
-      radial-gradient(900px 600px at 15% 20%, rgba(34,211,238,.12), transparent 60%),
-      radial-gradient(900px 600px at 85% 30%, rgba(168,85,247,.14), transparent 60%),
-      radial-gradient(900px 700px at 55% 90%, rgba(16,185,129,.10), transparent 60%),
-      linear-gradient(to bottom, rgba(255,255,255,.04), transparent 30%, rgba(255,255,255,.02));
+    radial-gradient(900px 600px at 15% 20%, rgba(34,211,238,.12), transparent 60%),
+    radial-gradient(900px 600px at 85% 30%, rgba(168,85,247,.14), transparent 60%),
+    radial-gradient(900px 700px at 55% 90%, rgba(16,185,129,.10), transparent 60%),
+    linear-gradient(to bottom, rgba(255,255,255,.04), transparent 30%, rgba(255,255,255,.02));
 }
 .noise{
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");

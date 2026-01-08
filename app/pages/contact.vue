@@ -64,7 +64,6 @@ function resetForm() {
 }
 
 async function submit() {
-  // honeypot: if filled, silently succeed
   if (state.website.trim()) {
     resetForm()
     return
@@ -76,10 +75,20 @@ async function submit() {
     return
   }
 
-  // ✅ If you haven't integrated Supabase/API yet, keep it as "dummy submit"
   loading.value = true
   try {
-    await new Promise((r) => setTimeout(r, 600))
+    await $fetch('/api/contact/submit', {
+      method: 'POST',
+      body: {
+        name: state.name,
+        email: state.email,
+        projectType: state.projectType,
+        budget: state.budget,
+        message: state.message,
+        website: state.website
+      }
+    })
+
     toast.add({
       title: 'Sent!',
       description: 'We received your message. We’ll reply soon.',
@@ -89,13 +98,14 @@ async function submit() {
   } catch (e: any) {
     toast.add({
       title: 'Failed',
-      description: e?.message || 'Please try again in a moment.',
+      description: e?.data?.statusMessage || e?.data?.message || e?.message || 'Please try again.',
       color: 'error'
     })
   } finally {
     loading.value = false
   }
 }
+
 </script>
 
 <template>

@@ -14,9 +14,9 @@
 
     body {
         font-family: var(--font-sans);
-        background: radial-gradient(1200px 600px at 20% 0%, rgba(124, 58, 237, 0.25), transparent 60%),
+        /* background: radial-gradient(1200px 600px at 20% 0%, rgba(124, 58, 237, 0.25), transparent 60%),
         radial-gradient(900px 500px at 80% 20%, rgba(34, 211, 238, 0.18), transparent 55%),
-        #070A12;
+        #070A12; */
         color: rgba(231, 238, 252, 0.95);
         overflow-x: hidden;
     }

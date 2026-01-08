@@ -242,7 +242,7 @@ onBeforeUnmount(() => cleanup())
 <template>
   <div
     ref="wrap"
-    class="orbWrap relative h-[320px] md:h-[520px] w-full overflow-hidden rounded-3xl border border-white/10 bg-white/5 shadow-2xl"
+    class="orbWrap relative h-[320px] md:h-[520px] w-full overflow-hidden"
     aria-label="Interactive 3D orb"
   >
     <!-- Fallback visual (visible behind transparent WebGL) -->
@@ -258,17 +258,4 @@ onBeforeUnmount(() => cleanup())
   touch-action: none; /* important for mobile drag */
 }
 
-.orbFallback{
-  background:
-    radial-gradient(420px 240px at 30% 25%, rgba(124,58,237,.35), transparent 60%),
-    radial-gradient(420px 240px at 70% 35%, rgba(34,211,238,.26), transparent 60%),
-    radial-gradient(520px 320px at 50% 90%, rgba(34,197,94,.14), transparent 60%),
-    linear-gradient(to bottom, rgba(2,6,23,.20), rgba(2,6,23,.55));
-}
-
-.heroGlow{
-  background:
-    radial-gradient(circle at 30% 30%, rgba(124,58,237,.6), transparent 55%),
-    radial-gradient(circle at 70% 40%, rgba(34,211,238,.5), transparent 55%);
-}
 </style>

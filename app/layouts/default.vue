@@ -102,6 +102,9 @@
           <UButton variant="ghost" to="/services" @click="open=false">Services</UButton>
           <UButton variant="ghost" to="/arcade" @click="open=false">Arcade</UButton>
           <UButton variant="ghost" to="/about" @click="open=false">About</UButton>
+          <UButton variant="ghost" to="/about" @click="open=false">About</UButton>
+          <UButton variant="ghost" to="/arcade/leaderboard" @click="open=false">Leaderboard</UButton>
+          <UButton variant="ghost" to="/arcade/winners" @click="open=false">Winners</UButton>
           <UButton color="primary" to="/contact" @click="open=false">Contact</UButton>
         </div>
       </template>

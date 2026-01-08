@@ -149,7 +149,7 @@ function fmtDate(ts?: string) {
 
 // Navigate to winners page (single file winners.vue)
 function goWinners() {
-  navigateTo(`/winners?game=${encodeURIComponent(selected.value)}`)
+  navigateTo(`/arcade/winners`)
 }
 </script>
 
@@ -171,7 +171,7 @@ function goWinners() {
             :key="g.slug"
             size="sm"
             :variant="selected === g.slug ? 'solid' : 'soft'"
-            :color="selected === g.slug ? 'primary' : 'gray'"
+            :color="selected === g.slug ? 'primary' : 'info'"
             @click="selected = g.slug"
           >
             {{ g.name }}

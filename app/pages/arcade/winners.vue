@@ -94,7 +94,7 @@ watch([selected, limit], load, { immediate: true })
         <UButton
           variant="soft"
           icon="i-heroicons-trophy"
-          :to="`/leaderboard?game=${selected}`"
+          :to="`/arcade/leaderboard?game=${selected}`"
         >
           Leaderboard
         </UButton>

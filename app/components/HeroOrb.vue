@@ -16,30 +16,52 @@ let lastY = 0
 let targetRotX = 0
 let targetRotY = 0
 
-function prefersReducedMotion() {
-  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+let ro: ResizeObserver | null = null
+let reducedMotion = false
+let rotSens = 0.006 // will be recalculated from size
+
+const size = { w: 1, h: 1, min: 1 }
+
+function updateSensitivity() {
+  // smaller container -> slightly higher sensitivity; larger -> slightly lower
+  rotSens = THREE.MathUtils.clamp(2.6 / Math.max(240, size.min), 0.0045, 0.010)
+}
+
+function readReducedMotion() {
+  reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+}
+
+function disposeMaterial(mat: any) {
+  // dispose textures on the material
+  for (const k in mat) {
+    const v = mat[k]
+    if (v && v.isTexture) v.dispose()
+  }
+  mat.dispose?.()
 }
 
 function cleanup() {
   cancelAnimationFrame(raf)
   raf = 0
 
-  window.removeEventListener('resize', onResize)
+  ro?.disconnect()
+  ro = null
+
   if (wrap.value) {
     wrap.value.removeEventListener('pointerdown', onDown)
     wrap.value.removeEventListener('pointermove', onMove)
     wrap.value.removeEventListener('pointerup', onUp)
     wrap.value.removeEventListener('pointerleave', onUp)
+    wrap.value.removeEventListener('pointercancel', onUp)
   }
 
   if (scene) {
     scene.traverse((obj: any) => {
       if (obj.geometry) obj.geometry.dispose?.()
       if (obj.material) {
-        if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose?.())
-        else obj.material.dispose?.()
+        if (Array.isArray(obj.material)) obj.material.forEach(disposeMaterial)
+        else disposeMaterial(obj.material)
       }
-      if (obj.texture) obj.texture.dispose?.()
     })
   }
 
@@ -69,10 +91,8 @@ function onMove(e: PointerEvent) {
   lastX = e.clientX
   lastY = e.clientY
 
-  // drag sensitivity
-  targetRotY += dx * 0.006
-  targetRotX += dy * 0.006
-  // clamp vertical rotation a bit so it doesn't flip
+  targetRotY += dx * rotSens
+  targetRotX += dy * rotSens
   targetRotX = Math.max(-0.9, Math.min(0.9, targetRotX))
 }
 
@@ -80,36 +100,51 @@ function onUp() {
   isDown = false
 }
 
-function onResize() {
-  if (!wrap.value || !renderer || !camera) return
-  const { clientWidth: w, clientHeight: h } = wrap.value
-  camera.aspect = w / h
+function resizeTo(w: number, h: number) {
+  if (!renderer || !camera) return
+
+  size.w = Math.max(1, w)
+  size.h = Math.max(1, h)
+  size.min = Math.min(size.w, size.h)
+
+  updateSensitivity()
+
+  camera.aspect = size.w / size.h
+
+  // small containers: slightly wider FOV + closer camera
+  camera.fov = size.min < 420 ? 42 : 38
   camera.updateProjectionMatrix()
-  renderer.setSize(w, h, false)
+
+  // cap DPR a bit more aggressively on small devices
+  const dprCap = size.min < 420 ? 1.5 : 2
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap))
+  renderer.setSize(size.w, size.h, false)
+
+  if (orb) {
+    // keep orb from dominating tiny layouts
+    const base = THREE.MathUtils.clamp(size.min / 520, 0.72, 1.0)
+    orb.scale.setScalar(base)
+  }
 }
 
 function buildOrb() {
   const group = new THREE.Group()
 
-  // Core sphere
   const sphereGeo = new THREE.SphereGeometry(1, 128, 128)
-
   const coreMat = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color('#7c3aed'), // violet core
-    roughness: 0.25,
-    metalness: 0.2,
+    color: new THREE.Color('#7c3aed'),
+    roughness: 0.22,
+    metalness: 0.22,
     clearcoat: 1,
-    clearcoatRoughness: 0.15,
-    transmission: 0.25, // subtle glassy feel
-    thickness: 0.8,
-    emissive: new THREE.Color('#22d3ee'), // cyan glow tint
+    clearcoatRoughness: 0.12,
+    transmission: 0.28,
+    thickness: 0.9,
+    emissive: new THREE.Color('#22d3ee'),
     emissiveIntensity: 0.25
   })
+  group.add(new THREE.Mesh(sphereGeo, coreMat))
 
-  const core = new THREE.Mesh(sphereGeo, coreMat)
-  group.add(core)
-
-  // Soft outer glow shell (bigger sphere, additive, back-side)
+  // glow shells
   const glowGeo = new THREE.SphereGeometry(1.15, 64, 64)
   const glowMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color('#22d3ee'),
@@ -119,10 +154,8 @@ function buildOrb() {
     side: THREE.BackSide,
     depthWrite: false
   })
-  const glow = new THREE.Mesh(glowGeo, glowMat)
-  group.add(glow)
+  group.add(new THREE.Mesh(glowGeo, glowMat))
 
-  // A second glow layer for richness
   const glow2Geo = new THREE.SphereGeometry(1.35, 64, 64)
   const glow2Mat = new THREE.MeshBasicMaterial({
     color: new THREE.Color('#7c3aed'),
@@ -132,10 +165,9 @@ function buildOrb() {
     side: THREE.BackSide,
     depthWrite: false
   })
-  const glow2 = new THREE.Mesh(glow2Geo, glow2Mat)
-  group.add(glow2)
+  group.add(new THREE.Mesh(glow2Geo, glow2Mat))
 
-  // Thin ring(s) around the orb (gives it "tech magic" vibe)
+  // rings
   const ringGeo = new THREE.TorusGeometry(1.35, 0.02, 16, 160)
   const ringMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color('#e2e8ff'),
@@ -144,6 +176,7 @@ function buildOrb() {
     roughness: 0.35,
     metalness: 0.65
   })
+
   const ring1 = new THREE.Mesh(ringGeo, ringMat)
   ring1.rotation.x = Math.PI * 0.35
   group.add(ring1)
@@ -159,17 +192,18 @@ function buildOrb() {
 function animate() {
   if (!renderer || !scene || !camera || !orb) return
 
-  // smooth follow to target rotation
+  // smooth follow
   orb.rotation.x += (targetRotX - orb.rotation.x) * 0.08
   orb.rotation.y += (targetRotY - orb.rotation.y) * 0.08
 
-  // idle motion (disable if reduced motion)
-  if (!prefersReducedMotion() && !isDown) {
+  if (!reducedMotion && !isDown) {
     targetRotY += 0.0022
-    // subtle breathing scale
+
+    // subtle breathing but scaled by container size to avoid “too big” on tiny screens
     const t = performance.now() * 0.001
-    const s = 1 + Math.sin(t * 1.2) * 0.015
-    orb.scale.setScalar(s)
+    const breathe = 1 + Math.sin(t * 1.2) * 0.015
+    const base = THREE.MathUtils.clamp(size.min / 520, 0.72, 1.0)
+    orb.scale.setScalar(base * breathe)
   }
 
   renderer.render(scene, camera)
@@ -179,14 +213,12 @@ function animate() {
 onMounted(() => {
   if (!wrap.value) return
 
-  // If WebGL fails, keep a nice fallback background (CSS in template)
-  const w = wrap.value.clientWidth
-  const h = wrap.value.clientHeight
+  readReducedMotion()
 
   scene = new THREE.Scene()
   scene.fog = new THREE.Fog(new THREE.Color('#05060a'), 6, 18)
 
-  camera = new THREE.PerspectiveCamera(38, w / h, 0.1, 60)
+  camera = new THREE.PerspectiveCamera(38, 1, 0.1, 60)
   camera.position.set(0, 0.2, 6.2)
 
   renderer = new THREE.WebGLRenderer({
@@ -194,14 +226,19 @@ onMounted(() => {
     alpha: true,
     powerPreference: 'high-performance'
   })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
-  renderer.setSize(w, h, false)
-  renderer.setClearColor(0x000000, 0) // transparent
+  renderer.setClearColor(0x000000, 0)
+
+  // make canvas “layout-safe”
+  renderer.domElement.style.position = 'absolute'
+  renderer.domElement.style.inset = '0'
+  renderer.domElement.style.width = '100%'
+  renderer.domElement.style.height = '100%'
+  renderer.domElement.style.display = 'block'
+
   wrap.value.appendChild(renderer.domElement)
 
-  // Lights (balanced for glow)
-  const ambient = new THREE.AmbientLight(new THREE.Color('#c7d2fe'), 0.55)
-  scene.add(ambient)
+  // lights
+  scene.add(new THREE.AmbientLight(new THREE.Color('#c7d2fe'), 0.55))
 
   const key = new THREE.PointLight(new THREE.Color('#7c3aed'), 1.3, 50)
   key.position.set(3, 2.5, 6)
@@ -215,23 +252,33 @@ onMounted(() => {
   rim.position.set(-2, 4, 2)
   scene.add(rim)
 
-  // Orb
   orb = buildOrb()
   orb.position.set(0.2, 0, 0)
   scene.add(orb)
 
-  // Start slightly angled (looks nicer than perfectly front-on)
   targetRotY = 0.6
   targetRotX = -0.15
   orb.rotation.set(targetRotX, targetRotY, 0)
 
-  // Interactions
+  // interactions
   wrap.value.addEventListener('pointerdown', onDown, { passive: true })
   wrap.value.addEventListener('pointermove', onMove, { passive: true })
   wrap.value.addEventListener('pointerup', onUp, { passive: true })
   wrap.value.addEventListener('pointerleave', onUp, { passive: true })
+  wrap.value.addEventListener('pointercancel', onUp, { passive: true })
 
-  window.addEventListener('resize', onResize, { passive: true })
+  // ResizeObserver handles: viewport resize, layout shifts, parent size changes
+  ro = new ResizeObserver((entries) => {
+    const cr = entries[0]?.contentRect
+    if (!cr) return
+    resizeTo(cr.width, cr.height)
+  })
+  ro.observe(wrap.value)
+
+  // initial
+  const w = wrap.value.clientWidth
+  const h = wrap.value.clientHeight
+  resizeTo(w, h)
 
   animate()
 })
@@ -242,28 +289,28 @@ onBeforeUnmount(() => cleanup())
 <template>
   <div
     ref="wrap"
-    class="orbWrap relative h-[320px] md:h-[520px] w-full overflow-hidden rounded-3xl border border-white/10 bg-white/5 shadow-2xl"
+    class="orbWrap relative w-full overflow-hidden"
     aria-label="Interactive 3D orb"
   >
     <!-- Fallback visual (visible behind transparent WebGL) -->
     <div class="orbFallback absolute inset-0" aria-hidden="true" />
-
-    <!-- Soft edge glow like your old heroGlow -->
-    <div class="heroGlow absolute -inset-6 -z-10 blur-2xl opacity-30" aria-hidden="true" />
   </div>
 </template>
 
 <style scoped>
-.orbWrap{
-  touch-action: none; /* important for mobile drag */
+/* KEY FIX: stop fixed heights from breaking short devices */
+.orbWrap {
+  touch-action: none;
+  height: clamp(220px, 52vw, 520px);
+  max-height: 70vh; /* prevents overflow on short screens */
 }
 
-.orbFallback{
-  background:
-    radial-gradient(420px 240px at 30% 25%, rgba(124,58,237,.35), transparent 60%),
-    radial-gradient(420px 240px at 70% 35%, rgba(34,211,238,.26), transparent 60%),
-    radial-gradient(520px 320px at 50% 90%, rgba(34,197,94,.14), transparent 60%),
-    linear-gradient(to bottom, rgba(2,6,23,.20), rgba(2,6,23,.55));
+/* super short screens (landscape phones) */
+@media (max-height: 560px) {
+  .orbWrap {
+    height: min(46vh, 340px);
+    max-height: 46vh;
+  }
 }
 
 .heroGlow{

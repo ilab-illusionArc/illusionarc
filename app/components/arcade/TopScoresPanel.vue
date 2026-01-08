@@ -20,9 +20,10 @@ const rows = ref<Row[]>([])
 const errorMsg = ref<string | null>(null)
 
 function normalizeRows(res: any): Row[] {
-  const raw = (Array.isArray(res?.top) && res.top)
-      || (Array.isArray(res?.items) && res.items)
-      || []
+  const raw =
+    (Array.isArray(res?.top) && res.top) ||
+    (Array.isArray(res?.items) && res.items) ||
+    []
 
   return raw.map((r: any) => ({
     id: r?.id,
@@ -33,7 +34,6 @@ function normalizeRows(res: any): Row[] {
 }
 
 async function load() {
-  // ✅ Prevent SSR fetch (avoids refresh “500” screens in dev/prod)
   if (import.meta.server) return
 
   if (!props.gameSlug) {
@@ -46,8 +46,9 @@ async function load() {
   errorMsg.value = null
 
   try {
-    const res: any = await getTop(props.gameSlug, props.limit ?? 10)
-    rows.value = normalizeRows(res)
+    // ✅ Force ALL TIME + Top 3
+    const res: any = await getTop(props.gameSlug, props.limit ?? 3, { period: 'all' })
+    rows.value = normalizeRows(res).slice(0, props.limit ?? 3)
   } catch (e: any) {
     rows.value = []
     errorMsg.value = e?.data?.message || e?.message || 'Leaderboard unavailable.'
@@ -57,9 +58,9 @@ async function load() {
 }
 
 watch(
-    () => [props.gameSlug, props.limit],
-    () => load(),
-    { immediate: true }
+  () => [props.gameSlug, props.limit],
+  () => load(),
+  { immediate: true }
 )
 </script>
 
@@ -67,7 +68,7 @@ watch(
   <UCard class="bg-white/5 border-white/10">
     <template #header>
       <div class="flex items-center justify-between">
-        <div class="font-semibold">Top Scores</div>
+        <div class="font-semibold">Top Scorer</div>
         <div class="text-xs opacity-70" v-if="loading">Loading…</div>
       </div>
     </template>
@@ -84,13 +85,14 @@ watch(
     </div>
 
     <div v-else class="divide-y divide-white/10">
-      <div
-          v-for="(r, i) in rows"
-          :key="r.id ?? i"
-          class="py-3 flex items-center justify-between"
-      >
+      <div v-for="(r, i) in rows" :key="r.id ?? i" class="py-3 flex items-center justify-between">
         <div class="flex items-center gap-3 min-w-0">
-          <div class="w-6 text-xs opacity-60">{{ i + 1 }}</div>
+          <div
+            class="w-6 text-xs font-semibold"
+            :class="i === 0 ? 'text-yellow-300' : i === 1 ? 'text-slate-200' : 'text-amber-500'"
+          >
+            {{ i + 1 }}
+          </div>
           <div class="font-medium truncate">{{ r.player || 'Player' }}</div>
         </div>
         <div class="font-semibold tabular-nums">{{ r.score ?? 0 }}</div>

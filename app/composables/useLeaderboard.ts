@@ -1,21 +1,19 @@
+// composables/useLeaderboard.ts
 export function useLeaderboard() {
-    async function submitScore(payload: {
-        gameSlug: string
-        player: string
-        score: number
-        source: 'arcade' | 'embed'
-    }) {
-        return await $fetch('/api/leaderboard/submit', {
-            method: 'POST',
-            body: payload
-        })
-    }
+  async function getTop(
+    gameSlug: string,
+    limit = 10,
+    opts?: { period?: 'daily' | 'weekly' | 'all' }
+  ) {
+    return await $fetch('/api/leaderboard/get', {
+      method: 'GET',
+      query: {
+        gameSlug,
+        limit,
+        period: opts?.period ?? 'daily'
+      }
+    })
+  }
 
-    async function getTop(gameSlug?: string, limit = 50) {
-        return await $fetch('/api/leaderboard/get', {
-            query: { gameSlug, limit }
-        })
-    }
-
-    return { submitScore, getTop }
+  return { getTop }
 }

@@ -13,6 +13,9 @@
           <UButton variant="ghost" to="/services">Services</UButton>
           <UButton variant="ghost" to="/arcade">Arcade</UButton>
           <UButton variant="ghost" to="/about">About</UButton>
+          <UButton variant="ghost" to="/arcade/leaderboard">Leaderboard</UButton>
+          <UButton variant="ghost" to="/arcade/winners">Winners</UButton>
+
         </nav>
 
         <div class="flex items-center gap-2">

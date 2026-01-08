@@ -98,7 +98,7 @@ watch(
     </div>
 
     <div class="mt-3">
-      <UButton :to="`/arcade/leaderboard?game=${gameSlug}`" variant="ghost" size="sm">
+      <UButton :to="`/arcade/leaderboard/${gameSlug}`" variant="ghost" size="sm">
         View full leaderboard →
       </UButton>
     </div>

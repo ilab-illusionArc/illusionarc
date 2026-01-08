@@ -37,10 +37,9 @@ function normalizeDisplayName(v: string) {
   const s = String(v || '').trim().replace(/\s+/g, ' ')
   // allow letters, numbers, space, underscore, dash
   const cleaned = s.replace(/[^\p{L}\p{N} _-]/gu, '')
-  return cleaned.slice(0, 24) // keep short for UI
+  return cleaned.slice(0, 24)
 }
 
-// Random display name generator (fun + short)
 function randomDisplayName() {
   const a = ['Neon', 'Turbo', 'Shadow', 'Nova', 'Pixel', 'Arc', 'Blaze', 'Frost', 'Cosmic', 'Hyper']
   const b = ['Rider', 'Knight', 'Hunter', 'Pilot', 'Ninja', 'Wizard', 'Boss', 'Runner', 'Samurai', 'Rogue']
@@ -48,15 +47,12 @@ function randomDisplayName() {
   return `${a[Math.floor(Math.random() * a.length)]}${b[Math.floor(Math.random() * b.length)]}${n}`
 }
 
-// Auto-generate a name when switching to signup (if empty)
 watch(
-  () => mode.value,
-  (m) => {
-    if (m === 'signup' && !displayName.value.trim()) {
-      displayName.value = randomDisplayName()
-    }
-  },
-  { immediate: true }
+    () => mode.value,
+    (m) => {
+      if (m === 'signup' && !displayName.value.trim()) displayName.value = randomDisplayName()
+    },
+    { immediate: true }
 )
 
 const canSubmit = computed(() => {
@@ -66,55 +62,34 @@ const canSubmit = computed(() => {
   return true
 })
 
-/**
- * Best-effort uniqueness check against Supabase `profiles` table.
- * If your profiles table isn't there / RLS blocks select, it silently falls back.
- */
+// Optional best-effort check (safe fallback if RLS blocks)
 async function isDisplayNameTaken(name: string): Promise<boolean> {
   if (!import.meta.client) return false
   const n = normalizeDisplayName(name)
   if (!n) return false
 
   try {
-    // Use `as any` to avoid TS "never" issues if types aren't generated yet.
     const client: any = supabase
-    const { data, error } = await client
-      .from('profiles')
-      .select('id')
-      .eq('display_name', n)
-      .limit(1)
-
-    if (error) return false // can't check => don't block signup
+    const { data, error } = await client.from('profiles').select('id').eq('display_name', n).limit(1)
+    if (error) return false
     return Array.isArray(data) && data.length > 0
   } catch {
     return false
   }
 }
 
-/**
- * Ensure we have an available display name:
- * - if user typed one and it is taken, we append random digits
- * - if empty, we generate random
- */
 async function pickUniqueDisplayName(preferred: string): Promise<string> {
   let base = normalizeDisplayName(preferred) || normalizeDisplayName(randomDisplayName())
   if (!base) base = 'Player' + Math.floor(1000 + Math.random() * 9000)
 
-  // Try a few times to avoid collisions
   for (let i = 0; i < 7; i++) {
     const taken = await isDisplayNameTaken(base)
     if (!taken) return base
-    // mutate
     base = `${base.slice(0, 18)}${Math.floor(10 + Math.random() * 90)}`
   }
-  // final fallback
   return `Player${Math.floor(100000 + Math.random() * 900000)}`
 }
 
-/**
- * After signin: heal old accounts by setting display_name in user_metadata if missing.
- * Refresh session so navbar updates immediately.
- */
 async function ensureDisplayNameAfterLogin() {
   const u: any = user.value
   if (!u?.id) return
@@ -125,25 +100,16 @@ async function ensureDisplayNameAfterLogin() {
 
   const dn = await pickUniqueDisplayName('')
   const { error } = await supabase.auth.updateUser({ data: { display_name: dn } })
-  if (error) {
-    console.warn('Failed to set display_name:', error.message)
-    return
-  }
+  if (error) return
 
-  // Refresh so UI updates without logout/login
   await supabase.auth.refreshSession()
 }
 
-/**
- * Optional: keep a profiles row in sync when session exists.
- * If you don't have a `profiles` table, it will simply fail silently.
- */
 async function upsertProfileIfPossible(dn: string) {
   try {
     const u: any = user.value
     if (!u?.id) return
     const client: any = supabase
-    // if table exists + RLS allows, this keeps it synced
     await client.from('profiles').upsert({
       id: u.id,
       display_name: dn,
@@ -151,7 +117,7 @@ async function upsertProfileIfPossible(dn: string) {
       updated_at: new Date().toISOString()
     })
   } catch {
-    // ignore (table missing or RLS)
+    // ignore
   }
 }
 
@@ -185,20 +151,15 @@ async function submit() {
       return
     }
 
-    // SIGNUP
     const picked = await pickUniqueDisplayName(displayName.value)
 
     const { data, error } = await supabase.auth.signUp({
       email: email.value.trim(),
       password: password.value,
-      options: {
-        data: { display_name: picked }
-      }
+      options: { data: { display_name: picked } }
     })
     if (error) throw error
 
-    // If signup returns a session (email confirm off), user is logged in now.
-    // Sync profile if possible + refresh session (so UserMenu shows name immediately).
     if (data?.session) {
       await supabase.auth.refreshSession()
       await upsertProfileIfPossible(picked)
@@ -212,18 +173,13 @@ async function submit() {
 
     await navigateTo(nextUrl.value, { replace: true })
   } catch (e: any) {
-    // If your DB enforces uniqueness and still collided, you’ll often see 23505
     const msg = String(e?.message || e?.error_description || '')
     const friendly =
-      msg.includes('duplicate') || msg.includes('23505')
-        ? 'That display name is already taken. Try another one.'
-        : msg || 'Please try again.'
+        msg.includes('duplicate') || msg.includes('23505')
+            ? 'That display name is already taken. Try another one.'
+            : msg || 'Please try again.'
 
-    toast.add({
-      title: 'Auth failed',
-      description: friendly,
-      color: 'error'
-    })
+    toast.add({ title: 'Auth failed', description: friendly, color: 'error' })
   } finally {
     loading.value = false
   }
@@ -235,22 +191,22 @@ function continueBrowsing() {
 </script>
 
 <template>
-  <div class="relative min-h-[calc(100dvh-64px)] overflow-hidden">
-    <!-- background wash -->
-    <div class="absolute inset-0 bg-black" />
-    <div class="absolute inset-0 wash" aria-hidden="true" />
-    <div class="absolute inset-0 noise" aria-hidden="true" />
+  <div class="authPage">
+    <!-- background layer uses theme vars -->
+    <div class="bg" aria-hidden="true" />
+    <div class="wash" aria-hidden="true" />
+    <div class="noise" aria-hidden="true" />
 
-    <!-- floating orbs -->
-    <div class="orb orb-a" aria-hidden="true" />
-    <div class="orb orb-b" aria-hidden="true" />
-    <div class="orb orb-c" aria-hidden="true" />
+    <!-- soft blobs (theme-aware) -->
+    <div class="orb orbA" aria-hidden="true" />
+    <div class="orb orbB" aria-hidden="true" />
+    <div class="orb orbC" aria-hidden="true" />
 
     <UContainer class="relative py-10 md:py-14">
       <div class="grid gap-8 lg:grid-cols-2 items-center">
-        <!-- Left: Brand panel -->
+        <!-- Left -->
         <div class="max-w-xl">
-          <div class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs opacity-90">
+          <div class="badge">
             <UIcon name="i-heroicons-lock-closed" class="w-4 h-4" />
             Login required to play games
           </div>
@@ -302,11 +258,11 @@ function continueBrowsing() {
           </div>
         </div>
 
-        <!-- Right: Auth card -->
+        <!-- Right -->
         <div class="lg:justify-self-end w-full max-w-xl">
           <div class="card">
             <div class="cardHead">
-              <div class="flex items-center justify-between">
+              <div class="flex items-center justify-between gap-3">
                 <div>
                   <div class="text-lg font-semibold">
                     {{ mode === 'signin' ? 'Sign in' : 'Create account' }}
@@ -335,13 +291,12 @@ function continueBrowsing() {
                   <UInput v-model="email" placeholder="you@email.com" autocomplete="email" icon="i-heroicons-envelope" />
                 </UFormGroup>
 
-                <!-- Display name only on signup -->
                 <UFormGroup v-if="mode === 'signup'" label="Display name (optional)">
                   <UInput
-                    v-model="displayName"
-                    placeholder="e.g. Souvik / NeonRider1234"
-                    autocomplete="nickname"
-                    icon="i-heroicons-user"
+                      v-model="displayName"
+                      placeholder="e.g. Souvik / NeonRider1234"
+                      autocomplete="nickname"
+                      icon="i-heroicons-user"
                   />
                   <div class="mt-1 text-xs opacity-60 flex items-center justify-between">
                     <span>Must be unique.</span>
@@ -353,11 +308,11 @@ function continueBrowsing() {
 
                 <UFormGroup label="Password" required>
                   <UInput
-                    v-model="password"
-                    :type="showPass ? 'text' : 'password'"
-                    placeholder="••••••••"
-                    :autocomplete="mode === 'signin' ? 'current-password' : 'new-password'"
-                    icon="i-heroicons-key"
+                      v-model="password"
+                      :type="showPass ? 'text' : 'password'"
+                      placeholder="••••••••"
+                      :autocomplete="mode === 'signin' ? 'current-password' : 'new-password'"
+                      icon="i-heroicons-key"
                   />
                   <div class="mt-2 flex items-center justify-between">
                     <UButton size="xs" variant="ghost" @click="showPass = !showPass">
@@ -371,12 +326,12 @@ function continueBrowsing() {
 
                 <div class="grid gap-2 sm:grid-cols-2">
                   <UButton
-                    color="primary"
-                    variant="solid"
-                    size="lg"
-                    :loading="loading"
-                    :disabled="!canSubmit"
-                    @click="submit"
+                      color="primary"
+                      variant="solid"
+                      size="lg"
+                      :loading="loading"
+                      :disabled="!canSubmit"
+                      @click="submit"
                   >
                     <UIcon name="i-heroicons-arrow-right-circle" class="w-5 h-5" />
                     {{ mode === 'signin' ? 'Login' : 'Create account' }}
@@ -394,7 +349,6 @@ function continueBrowsing() {
 
                 <div class="text-xs opacity-70 leading-relaxed">
                   By continuing, you agree to basic fair-use rules for the Arcade.
-                  (We can add Terms/Privacy pages later.)
                 </div>
               </div>
             </div>
@@ -410,16 +364,36 @@ function continueBrowsing() {
 </template>
 
 <style scoped>
-.wash{
-  background:
-    radial-gradient(900px 600px at 15% 20%, rgba(34,211,238,.12), transparent 60%),
-    radial-gradient(900px 600px at 85% 30%, rgba(168,85,247,.14), transparent 60%),
-    radial-gradient(900px 700px at 55% 90%, rgba(16,185,129,.10), transparent 60%),
-    linear-gradient(to bottom, rgba(255,255,255,.04), transparent 30%, rgba(255,255,255,.02));
+/* Page base should NOT force black/white. Use theme vars from main.css */
+.authPage{
+  position: relative;
+  min-height: calc(100dvh - 64px);
+  overflow: hidden;
+  color: var(--app-fg);
 }
+
+.bg{
+  position: absolute;
+  inset: 0;
+  background: var(--app-bg);
+}
+
+.wash{
+  position:absolute;
+  inset: 0;
+  background:
+      radial-gradient(900px 600px at 15% 20%, var(--wash-b), transparent 60%),
+      radial-gradient(900px 600px at 85% 30%, var(--wash-a), transparent 60%),
+      radial-gradient(900px 700px at 55% 90%, rgba(34,197,94,.10), transparent 60%),
+      linear-gradient(to bottom, rgba(255,255,255,.05), transparent 35%, rgba(255,255,255,.03));
+  opacity: .9;
+}
+
 .noise{
+  position:absolute;
+  inset:0;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
-  opacity:.12;
+  opacity:.10;
   mix-blend-mode: overlay;
 }
 
@@ -431,21 +405,23 @@ function continueBrowsing() {
   transform: translateZ(0);
   animation: float 9s ease-in-out infinite;
 }
-.orb-a{
+
+/* blobs are theme-friendly: rely on wash vars */
+.orbA{
   width: 280px; height: 280px;
   left: -90px; top: 80px;
-  background: radial-gradient(circle at 30% 30%, rgba(34,211,238,.55), rgba(34,211,238,.05) 60%, transparent 70%);
+  background: radial-gradient(circle at 30% 30%, rgba(34,211,238,.35), rgba(34,211,238,.06) 60%, transparent 70%);
 }
-.orb-b{
+.orbB{
   width: 320px; height: 320px;
   right: -120px; top: 120px;
-  background: radial-gradient(circle at 30% 30%, rgba(168,85,247,.55), rgba(168,85,247,.05) 60%, transparent 70%);
+  background: radial-gradient(circle at 30% 30%, rgba(124,58,237,.35), rgba(124,58,237,.06) 60%, transparent 70%);
   animation-delay: -2s;
 }
-.orb-c{
+.orbC{
   width: 360px; height: 360px;
   left: 40%; bottom: -180px;
-  background: radial-gradient(circle at 30% 30%, rgba(16,185,129,.45), rgba(16,185,129,.04) 60%, transparent 70%);
+  background: radial-gradient(circle at 30% 30%, rgba(34,197,94,.25), rgba(34,197,94,.05) 60%, transparent 70%);
   animation-delay: -4s;
 }
 
@@ -455,12 +431,24 @@ function continueBrowsing() {
 }
 
 .grad{
-  background: linear-gradient(90deg, rgba(34,211,238,1), rgba(168,85,247,1), rgba(16,185,129,1));
+  background: linear-gradient(90deg, rgba(34,211,238,1), rgba(124,58,237,1), rgba(34,197,94,1));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap:.5rem;
+  border-radius:9999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  padding: .25rem .75rem;
+  font-size: .75rem;
+}
+
+/* Cards should not be white-only. Use translucent surfaces */
 .feature{
   display:flex;
   gap:.6rem;
@@ -480,16 +468,18 @@ function continueBrowsing() {
 .card{
   border-radius: 1.5rem;
   border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.05);
-  box-shadow: 0 30px 80px rgba(0,0,0,.35);
+  background: rgba(255,255,255,.06);
+  box-shadow: 0 30px 80px rgba(0,0,0,.22);
   overflow:hidden;
   backdrop-filter: blur(10px);
 }
+
 .cardHead{
   padding: 1.1rem 1.1rem .9rem;
   border-bottom: 1px solid rgba(255,255,255,.10);
-  background: rgba(0,0,0,.18);
+  background: rgba(0,0,0,.10);
 }
+
 .cardBody{ padding: 1.1rem; }
 
 .toggle{
@@ -500,17 +490,19 @@ function continueBrowsing() {
   border: 1px solid rgba(255,255,255,.10);
   background: rgba(255,255,255,.04);
 }
+
 .pill{
   padding: .45rem .75rem;
   font-size: .85rem;
   border-radius:9999px;
-  color: rgba(255,255,255,.75);
-  transition: background .16s ease, color .16s ease, transform .16s ease;
+  color: inherit;
+  opacity: .75;
+  transition: background .16s ease, opacity .16s ease, transform .16s ease;
 }
-.pill:hover{ transform: translateY(-1px); }
+.pill:hover{ transform: translateY(-1px); opacity: 1; }
 .pill.on{
-  background: rgba(255,255,255,.10);
-  color: rgba(255,255,255,.95);
+  background: rgba(255,255,255,.12);
+  opacity: 1;
 }
 
 .divider{
@@ -529,7 +521,7 @@ function continueBrowsing() {
 .divider span{
   position:relative;
   padding: 0 .75rem;
-  background: rgba(0,0,0,.18);
+  background: rgba(0,0,0,.10);
   border: 1px solid rgba(255,255,255,.08);
   border-radius: 9999px;
 }

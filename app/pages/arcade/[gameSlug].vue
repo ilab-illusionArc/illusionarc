@@ -313,7 +313,7 @@ async function nativeShare() {
       </div>
 
       <ClientOnly>
-        <TopScoresPanel v-if="game!.leaderboard" :game-slug="game!.slug" :limit="10" />
+        <TopScoresPanel v-if="game!.leaderboard" :game-slug="game!.slug" :limit="3" />
       </ClientOnly>
     </div>
 

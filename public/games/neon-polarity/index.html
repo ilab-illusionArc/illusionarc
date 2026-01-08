@@ -3,33 +3,31 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Game</title>
+  <title>Neon Polarity</title>
   <style>
-    html, body {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      background: #000;
-      overflow: hidden;
-    }
-    iframe {
-      width: 100vw;
-      height: 100vh;
-      border: 0;
-      display: block;
-      background: #000;
-    }
+    html, body { width:100%; height:100%; margin:0; background:#000; overflow:hidden; }
+    iframe { width:100vw; height:100vh; border:0; display:block; background:#000; }
   </style>
 </head>
 <body>
-  <!-- Replace with your game URL -->
   <iframe
-    src="https://neon-polarity-rift-runner-141894321270.us-west1.run.app/"
+    id="game"
+    src="https://neon-polarity-q5ef.vercel.app"
     allow="autoplay; fullscreen"
     allowfullscreen
-    webkitallowfullscreen
-    mozallowfullscreen
   ></iframe>
+
+  <script>
+    // Only accept messages from the actual game origin
+    const GAME_ORIGIN = "https://neon-polarity-q5ef.vercel.app";
+
+    window.addEventListener("message", (e) => {
+      if (e.origin !== GAME_ORIGIN) return;
+      if (!e.data || typeof e.data !== "object") return;
+
+      // Relay to parent (IllusionArc) so parent sees origin === illusionarc.com
+      window.parent.postMessage(e.data, window.location.origin);
+    });
+  </script>
 </body>
 </html>

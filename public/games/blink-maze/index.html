@@ -31,5 +31,24 @@
     webkitallowfullscreen
     mozallowfullscreen
   ></iframe>
+
+  <script>
+    // Only accept messages from the Vercel game
+    const GAME_ORIGIN = "https://blink-maze.vercel.app";
+
+    window.addEventListener("message", (e) => {
+      if (e.origin !== GAME_ORIGIN) return;
+      if (!e.data || typeof e.data !== "object") return;
+
+      // Relay to parent (IllusionArc) so the parent sees origin === illusionarc.com
+      window.parent.postMessage(e.data, window.location.origin);
+    });
+
+    // (Optional) allow parent -> game messages later
+    // window.addEventListener("message", (e) => {
+    //   if (e.origin !== window.location.origin) return;
+    //   document.getElementById("game")?.contentWindow?.postMessage(e.data, GAME_ORIGIN);
+    // });
+  </script>
 </body>
 </html>

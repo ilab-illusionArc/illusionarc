@@ -15,10 +15,20 @@
           <UButton variant="ghost" to="/about">About</UButton>
           <UButton variant="ghost" to="/arcade/leaderboard">Leaderboard</UButton>
           <UButton variant="ghost" to="/arcade/winners">Winners</UButton>
-
         </nav>
 
         <div class="flex items-center gap-2">
+          <!-- ✅ Theme button (desktop) -->
+          <!-- <UButton
+            class="hidden md:inline-flex"
+            variant="ghost"
+            size="sm"
+            :title="`Theme: ${themeLabel} (click to change)`"
+            @click="cycleTheme"
+          >
+            <UIcon :name="themeIcon" class="w-5 h-5" />
+          </UButton> -->
+
           <UButton class="hidden md:inline-flex" color="primary" to="/contact">
             Contact
           </UButton>
@@ -40,6 +50,21 @@
     <USlideover v-model:open="open">
       <template #body>
         <div class="p-4 flex flex-col gap-2">
+          <!-- Top row actions (mobile) -->
+          <div class="flex items-center justify-between gap-2 pb-2 border-b border-white/10">
+            <div class="text-sm font-semibold opacity-80">Menu</div>
+
+            <!-- ✅ Theme button (mobile) -->
+            <UButton
+              variant="ghost"
+              size="sm"
+              :title="`Theme: ${themeLabel} (tap to change)`"
+              @click="cycleTheme"
+            >
+              <UIcon :name="themeIcon" class="w-5 h-5" />
+            </UButton>
+          </div>
+
           <!-- ✅ Avatar/Login inside drawer -->
           <div class="pb-2 border-b border-white/10">
             <!-- Logged out -->
@@ -101,7 +126,6 @@
           <UButton variant="ghost" to="/work" @click="open=false">Work</UButton>
           <UButton variant="ghost" to="/services" @click="open=false">Services</UButton>
           <UButton variant="ghost" to="/arcade" @click="open=false">Arcade</UButton>
-          <UButton variant="ghost" to="/about" @click="open=false">About</UButton>
           <UButton variant="ghost" to="/about" @click="open=false">About</UButton>
           <UButton variant="ghost" to="/arcade/leaderboard" @click="open=false">Leaderboard</UButton>
           <UButton variant="ghost" to="/arcade/winners" @click="open=false">Winners</UButton>
@@ -188,5 +212,37 @@ async function logout() {
   } catch (e: any) {
     toast.add({ title: 'Logout failed', description: e?.message || '', color: 'error' })
   }
+}
+
+/* =========================
+   ✅ Color mode button logic
+   ========================= */
+const colorMode = useColorMode()
+
+type Mode = 'system' | 'light' | 'dark'
+const order: Mode[] = ['system', 'light', 'dark']
+
+function normalizeMode(v: unknown): Mode {
+  return v === 'light' || v === 'dark' || v === 'system' ? v : 'system'
+}
+
+const theme = computed<Mode>(() => normalizeMode((colorMode as any).preference))
+
+const themeIcon = computed(() => {
+  if (theme.value === 'light') return 'i-heroicons-sun'
+  if (theme.value === 'dark') return 'i-heroicons-moon'
+  return 'i-heroicons-computer-desktop'
+})
+
+const themeLabel = computed(() => {
+  if (theme.value === 'light') return 'Light'
+  if (theme.value === 'dark') return 'Dark'
+  return 'System'
+})
+
+function cycleTheme() {
+  const i = order.indexOf(theme.value)
+  const next = order[(i + 1) % order.length]
+  ;(colorMode as any).preference = next
 }
 </script>

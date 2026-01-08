@@ -8,6 +8,7 @@ export default defineNuxtConfig({
     '@nuxt/hints',
     '@nuxt/image',
     '@nuxt/scripts',
+    '@nuxtjs/color-mode',
     '@nuxt/ui',
     '@vite-pwa/nuxt',
     '@nuxtjs/supabase'
@@ -72,5 +73,10 @@ export default defineNuxtConfig({
     public: {
       supabaseUrl: process.env.SUPABASE_URL
     }
+  },
+  colorMode: {
+    preference: 'dark', // ✅ default
+    fallback: 'dark',
+    classSuffix: '' // ✅ results in: <html class="dark"> or <html class="light">
   }
 })

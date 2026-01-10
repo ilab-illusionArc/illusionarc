@@ -142,7 +142,7 @@
           <div class="text-black/60 dark:text-white/60 mb-2">Legal</div>
           <div class="flex flex-col gap-1">
             <NuxtLink to="/privacy-policy" class="text-black/70 dark:text-white/70 hover:text-black dark:hover:text-white">Privacy Policy</NuxtLink>
-            <NuxtLink to="/terms" class="text-black/70 dark:text-white/70 hover:text-black dark:hover:text-white">Terms</NuxtLink>
+            <NuxtLink to="/terms" class="text-black/70 dark:text-white/70 hover:text-black dark:hover:text-white">Terms & Conditions</NuxtLink>
           </div>
         </div>
       </UContainer>

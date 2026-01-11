@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { GAMES } from '@/data/games'
 
-useHead({ title: 'Winners — Illusion Arc' })
+useHead({ title: 'Winners — illusion Arc' })
 
 const route = useRoute()
 const router = useRouter()

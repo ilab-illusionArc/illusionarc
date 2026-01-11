@@ -1,6 +1,6 @@
 <script setup lang="ts">
 useHead({
-  title: 'Profile — Illusion Arc',
+  title: 'Profile — illusion Arc',
   meta: [{ name: 'description', content: 'Edit your Illusion Arc profile.' }]
 })
 

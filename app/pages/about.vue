@@ -1,6 +1,6 @@
 <script setup lang="ts">
 useHead({
-  title: 'About — Illusion Arc',
+  title: 'About — illusion Arc',
   meta: [
     {
       name: 'description',
@@ -58,7 +58,7 @@ const tools = [
       </div>
 
       <div class="relative">
-        <h1 class="text-3xl md:text-5xl font-semibold tracking-tight">About Illusion Arc</h1>
+        <h1 class="text-3xl md:text-5xl font-semibold tracking-tight">About illusion Arc</h1>
         <p class="mt-3 max-w-2xl text-sm md:text-base opacity-80 leading-relaxed">
           We’re a creative tech studio building games, interactive web experiences, and AR/VR simulations —
           with a premium look, fast feel, and scalable architecture.
@@ -86,7 +86,7 @@ const tools = [
 
         <div class="space-y-4 text-sm opacity-85 leading-relaxed">
           <p>
-            Illusion Arc exists to make interactive experiences feel alive — from neon-fast mobile games to
+            illusion Arc exists to make interactive experiences feel alive — from neon-fast mobile games to
             immersive XR training simulations. We care about the “feel”: responsiveness, feedback, and polish.
           </p>
           <p>

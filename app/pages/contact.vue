@@ -1,7 +1,7 @@
 <!-- app/pages/contact.vue -->
 <script setup lang="ts">
 useHead({
-  title: 'Contact — Illusion Arc',
+  title: 'Contact — illusion Arc',
   meta: [
     {
       name: 'description',

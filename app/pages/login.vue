@@ -1,6 +1,6 @@
 <script setup lang="ts">
 useHead({
-  title: 'Login — Illusion Arc',
+  title: 'Login — illusion Arc',
   meta: [{ name: 'description', content: 'Login to play games on Illusion Arc.' }]
 })
 
@@ -344,7 +344,7 @@ function continueBrowsing() {
                 </div>
 
                 <div class="divider">
-                  <span class="text-xs opacity-60">Illusion Arc</span>
+                  <span class="text-xs opacity-60">illusion Arc</span>
                 </div>
 
                 <div class="text-xs opacity-70 leading-relaxed">

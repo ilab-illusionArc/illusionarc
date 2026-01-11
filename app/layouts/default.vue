@@ -9,7 +9,7 @@
       <UContainer class="py-3 flex items-center justify-between gap-3">
         <NuxtLink to="/" class="flex items-center gap-2">
           <UIcon name="i-heroicons-sparkles" class="text-xl" />
-          <span class="font-semibold tracking-wide">Illusion Arc</span>
+          <span class="font-semibold tracking-wide">illusion Arc</span>
         </NuxtLink>
 
         <nav class="hidden md:flex items-center gap-1">
@@ -123,7 +123,7 @@
     <footer class="border-t border-black/10 dark:border-white/5 bg-white/50 dark:bg-black/10">
       <UContainer class="py-10 grid gap-6 md:grid-cols-3">
         <div>
-          <div class="font-semibold">Illusion Arc</div>
+          <div class="font-semibold">illusion Arc</div>
           <div class="text-sm text-black/60 dark:text-white/60 mt-2">
             Games • AR/VR • VFX/CGI • Animation
           </div>
@@ -150,7 +150,7 @@
       <!-- ✅ Footer bottom bar with theme button (good position) -->
       <UContainer class="py-4 border-t border-black/10 dark:border-white/5 flex items-center justify-between gap-3">
         <div class="text-xs text-black/50 dark:text-white/50">
-          © {{ new Date().getFullYear() }} Illusion Arc
+          © {{ new Date().getFullYear() }} illusion Arc
         </div>
 
         <ClientOnly>

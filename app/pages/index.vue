@@ -15,7 +15,7 @@ useHead({
     {
       name: 'description',
       content:
-          'Illusion Arc — Games, AR/VR, VFX/CGI, and animation. Play our arcade games and explore our work.'
+          'illusion Arc — Games, AR/VR, VFX/CGI, and animation. Play our arcade games and explore our work.'
     }
   ]
 })

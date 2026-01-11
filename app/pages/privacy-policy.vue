@@ -1,6 +1,6 @@
 <script setup lang="ts">
 useHead({
-  title: 'Privacy Policy — Illusion Arc',
+  title: 'Privacy Policy — illusion Arc',
   meta: [
     {
       name: 'description',

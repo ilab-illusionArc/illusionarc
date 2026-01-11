@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { GAMES } from '@/data/games'
 
-useHead({ title: 'Leaderboard — Illusion Arc' })
+useHead({ title: 'Leaderboard — illusion Arc' })
 
 const route = useRoute()
 const router = useRouter()

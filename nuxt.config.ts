@@ -16,7 +16,7 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
   app: {
     head: {
-      titleTemplate: '%s · Illusion Arc',
+      titleTemplate: '%s · illusion Arc',
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
         { name: 'theme-color', content: '#070A12' }

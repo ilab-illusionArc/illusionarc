@@ -1,6 +1,6 @@
 <script setup lang="ts">
 useHead({
-  title: 'Terms & Conditions — Illusion Arc.',
+  title: 'Terms & Conditions — illusion Arc.',
   meta: [
     {
       name: 'description',

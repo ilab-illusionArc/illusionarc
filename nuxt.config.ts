@@ -107,20 +107,21 @@ export default defineNuxtConfig({
       hashStyles: false,
       exportToPresets: true
     },
-    corsHandler: {
-      origin: [
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-        'https://illusionarc.com',
-        'https://www.illusionarc.com',
-        'https://blink-maze.vercel.app',
-        'https://neon-polarity-q5ef.vercel.app'
-      ],
-      credentials: true,
-      methods: ['GET', 'POST', 'OPTIONS'],
-      allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-      maxAge: '86400'
-    },
+    // corsHandler: {
+    //   origin: [
+    //     'http://localhost:3000',
+    //     'http://127.0.0.1:3000',
+    //     'https://illusionarc.com',
+    //     'https://www.illusionarc.com',
+    //     'https://blink-maze.vercel.app',
+    //     'https://neon-polarity-q5ef.vercel.app'
+    //   ],
+    //   credentials: true,
+    //   methods: ['GET', 'POST', 'OPTIONS'],
+    //   allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    //   maxAge: '86400'
+    // },
+    corsHandler: false, // Disable CORS handling; configure via proxy/CDN if needed
 
     // Extra hardening utilities (enabled by default; keeping explicit)
     hidePoweredBy: true, // :contentReference[oaicite:2]{index=2}
@@ -199,27 +200,33 @@ export default defineNuxtConfig({
         'object-src': ["'none'"],
         'frame-ancestors': ["'self'"],
 
-        // Allow Nuxt assets + common patterns
-        'img-src': ["'self'", 'data:', 'https:'],
-        'font-src': ["'self'", 'https:', 'data:'],
-        'style-src': ["'self'", 'https:', "'unsafe-inline'"],
+        // Your pages
+        'default-src': ["'self'"],
 
-        // Allow API calls (Supabase is HTTPS/WSS)
+        // API / websocket (Supabase uses https + wss)
         'connect-src': ["'self'", 'https:', 'wss:'],
 
-        // Strict CSP for scripts (SSR nonces)
+        // Images / fonts (Nuxt Image often uses data: for placeholders; keep it)
+        'img-src': ["'self'", 'data:', 'https:'],
+        'font-src': ["'self'", 'data:', 'https:'],
+
+        // Styles: Nuxt UI / Tailwind often injects inline styles in dev.
+        // Keep 'unsafe-inline' ONLY in style-src (not script-src).
+        'style-src': ["'self'", 'https:', "'unsafe-inline'"],
+
+        // ✅ The important part: SAFE script policy
         'script-src': [
           "'self'",
-          'https:',
-          "'unsafe-inline'", // fallback for older browsers
-          "'strict-dynamic'",
           "'nonce-{{nonce}}'"
         ],
         'script-src-attr': ["'none'"],
 
-        // If you use web workers (common with some libs), keep this:
+        // Workers (some libraries use blob workers)
         'worker-src': ["'self'", 'blob:'],
 
+        // Optional extras
+        'form-action': ["'self'"],
+        'manifest-src': ["'self'"],
         'upgrade-insecure-requests': true
       }
     },

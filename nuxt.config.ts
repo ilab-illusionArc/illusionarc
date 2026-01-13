@@ -247,6 +247,25 @@ export default defineNuxtConfig({
         }
       }
     },
+    '/arcade/**': {
+      security: {
+        headers: {
+          // Allow embedding for this route group
+          xFrameOptions: false, // disable X-Frame-Options so CSP governs framing :contentReference[oaicite:15]{index=15}
+          contentSecurityPolicy: {
+            'frame-ancestors': [
+              "'self'",
+              'https://illusionarc.com',
+              'https://www.illusionarc.com'
+            ]
+          },
+
+          // Embeds often break with COOP/COEP, so disable for embeds unless you need isolation there
+          crossOriginEmbedderPolicy: false,
+          crossOriginOpenerPolicy: false
+        }
+      }
+    },
     '/games/**': {
       security: {
         headers: {

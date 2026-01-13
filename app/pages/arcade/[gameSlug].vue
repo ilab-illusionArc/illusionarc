@@ -32,8 +32,6 @@ const isIOS = computed(() => {
 })
 const showFullscreen = computed(() => !isIOS.value)
 
-// leaderboard
-const { submitScore } = useLeaderboard()
 const playerName = useState<string>('playerName', () => 'Player')
 const lastScore = ref<number | null>(null)
 const saving = ref(false)

@@ -107,6 +107,20 @@ export default defineNuxtConfig({
       hashStyles: false,
       exportToPresets: true
     },
+    corsHandler: {
+      origin: [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://illusionarc.com',
+        'https://www.illusionarc.com',
+        'https://blink-maze.vercel.app',
+        'https://neon-polarity-q5ef.vercel.app'
+      ],
+      credentials: true,
+      methods: ['GET', 'POST', 'OPTIONS'],
+      allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+      maxAge: '86400'
+    },
 
     // Extra hardening utilities (enabled by default; keeping explicit)
     hidePoweredBy: true, // :contentReference[oaicite:2]{index=2}
@@ -208,7 +222,7 @@ export default defineNuxtConfig({
 
         'upgrade-insecure-requests': true
       }
-    }
+    },
   },
 
   /**

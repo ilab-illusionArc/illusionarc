@@ -42,6 +42,7 @@ async function onScore(score: number) {
   try {
     await $fetch('/api/leaderboard/submit', {
       method: 'POST',
+      credentials: 'include',
       body: {
         gameSlug: game.value!.slug,
         score

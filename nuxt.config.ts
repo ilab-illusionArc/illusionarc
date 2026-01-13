@@ -107,20 +107,6 @@ export default defineNuxtConfig({
       hashStyles: false,
       exportToPresets: true
     },
-    // corsHandler: {
-    //   origin: [
-    //     'http://localhost:3000',
-    //     'http://127.0.0.1:3000',
-    //     'https://illusionarc.com',
-    //     'https://www.illusionarc.com',
-    //     'https://blink-maze.vercel.app',
-    //     'https://neon-polarity-q5ef.vercel.app'
-    //   ],
-    //   credentials: true,
-    //   methods: ['GET', 'POST', 'OPTIONS'],
-    //   allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    //   maxAge: '86400'
-    // },
     corsHandler: false, // Disable CORS handling; configure via proxy/CDN if needed
 
     // Extra hardening utilities (enabled by default; keeping explicit)
@@ -178,7 +164,7 @@ export default defineNuxtConfig({
         payment: [],
         usb: [],
         'display-capture': [],
-        fullscreen: [] // if you need fullscreen, remove this line or set allowed origins
+        fullscreen: ["self"] // if you need fullscreen, remove this line or set allowed origins
       }, // :contentReference[oaicite:11]{index=11}
 
       /**
@@ -248,8 +234,11 @@ export default defineNuxtConfig({
           // Allow embedding for this route group
           xFrameOptions: false, // disable X-Frame-Options so CSP governs framing :contentReference[oaicite:15]{index=15}
           contentSecurityPolicy: {
-            // Only override what we need; other directives remain from global CSP
-            'frame-ancestors': ['*']
+            'frame-ancestors': [
+              "'self'",
+              'https://illusionarc.com',
+              'https://www.illusionarc.com'
+            ]
           },
 
           // Embeds often break with COOP/COEP, so disable for embeds unless you need isolation there
@@ -258,6 +247,34 @@ export default defineNuxtConfig({
         }
       }
     },
+    '/games/**': {
+      security: {
+        headers: {
+          // Games may need relaxed CSP for 3rd-party assets; adjust as needed
+          contentSecurityPolicy: {
+            'frame-ancestors': [
+              "'self'",
+              'https://illusionarc.com',
+              'https://www.illusionarc.com'
+            ],
+            'img-src': ["'self'", 'data:', 'https:', 'blob:'],
+            'script-src': [
+              "'self'",
+              "'nonce-{{nonce}}'",
+              'https://cdnjs.cloudflare.com',
+              'https://cdn.jsdelivr.net'
+            ],
+            'style-src': [
+              "'self'",
+              'https:',
+              "'unsafe-inline'"
+            ]
+          }
+        }
+      }
+    },
+
+    
     
 
     /**

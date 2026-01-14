@@ -174,6 +174,7 @@
 </template>
 
 <script setup lang="ts">
+import { SpeedInsights } from "@vercel/speed-insights/nuxt"
 import UserMenu from '@/components/nav/UserMenu.vue'
 
 const open = ref(false)

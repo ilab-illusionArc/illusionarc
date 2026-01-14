@@ -1,4 +1,5 @@
 <template>
+  <SpeedInsights />
   <div class="min-h-dvh flex flex-col bg-[var(--app-bg)] text-[var(--app-fg)]">
     <!-- Header -->
     <header

@@ -94,10 +94,10 @@ export const GAMES: ArcadeGame[] = [
     buildType: 'iframe',
     sourceUrl: '/games/block-smash/index.html',
     embedAllowed: true,
-    embed: { aspectRatio: '16/9', minHeight: 520, orientation: 'landscape' },
+    embed: { aspectRatio: '16/9', minHeight: 520, orientation: 'portrait' },
     leaderboard: true,
-    rating: { value: 4.4, count: 1050 },
-    featured: false,
+    rating: { value: 4.5, count: 1050 },
+    featured: true,
     genre: 'Puzzle',
     difficulty: 'Medium',
     estTime: '60s'

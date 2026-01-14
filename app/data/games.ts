@@ -82,5 +82,24 @@ export const GAMES: ArcadeGame[] = [
     genre: 'Shooter',
     difficulty: 'Medium',
     estTime: '60s'
+  },
+  {
+    name: 'Block Smash',
+    slug: 'block-smash',
+    thumbnail: '/img/block-smash/block-smash-thumbnail.jpg',
+    shortPitch: 'Neon reflex boss fights. Tap fast, survive longer, post score.',
+    description:
+      'Face fast-paced neon bosses with simple tap controls. Survive longer to increase score, dodge patterns, and climb the global leaderboard. Best experienced in landscape on mobile.',
+    controls: ['Tap / click to dodge', 'Survive as long as possible'],
+    buildType: 'iframe',
+    sourceUrl: '/games/block-smash/index.html',
+    embedAllowed: true,
+    embed: { aspectRatio: '16/9', minHeight: 520, orientation: 'landscape' },
+    leaderboard: true,
+    rating: { value: 4.4, count: 1050 },
+    featured: false,
+    genre: 'Puzzle',
+    difficulty: 'Medium',
+    estTime: '60s'
   }
 ]

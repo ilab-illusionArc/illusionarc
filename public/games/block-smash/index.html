@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <title>Unity Web Player | Block Smash</title>
+
+  <meta name="viewport"
+        content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+
+    /* ✅ iframe-safe sizing */
+    #unity-container {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+
+    #unity-canvas {
+      width: 100% !important;
+      height: 100% !important;
+      display: block;
+
+      /* ✅ show your build splash while loading */
+      background: url('Build/bs.jpg') center / cover no-repeat;
+
+      /* ✅ important for mobile */
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      outline: none;
+    }
+
+    /* Simple loading bar (Boss Rush style) */
+    #loading {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      height: 10px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+    #loading > div {
+      height: 100%;
+      width: 0%;
+      background: rgba(34,211,238,0.9);
+      transition: width .15s linear;
+    }
+
+    /* Optional warning banner area (Unity showBanner) */
+    #unity-warning {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      z-index: 999;
+      display: none;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+    }
+    #unity-warning > div {
+      margin-bottom: 8px;
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.92);
+      color: #000;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+
+    <div id="unity-warning"></div>
+
+    <div id="loading">
+      <div id="bar"></div>
+    </div>
+  </div>
+
+  <!-- Use the Unity-generated loader directly (like Boss Rush) -->
+  <script src="Build/bs.loader.js"></script>
+  <script>
+    const canvas = document.querySelector("#unity-canvas");
+    const container = document.querySelector("#unity-container");
+    const bar = document.querySelector("#bar");
+    const loading = document.querySelector("#loading");
+
+    // Optional: Unity banner handler (ported from template)
+    function unityShowBanner(msg, type) {
+      const warningBanner = document.querySelector("#unity-warning");
+      const div = document.createElement("div");
+      div.textContent = msg;
+
+      if (type === "error") {
+        div.style.background = "rgba(255, 0, 0, 0.85)";
+        div.style.color = "#fff";
+      } else if (type === "warning") {
+        div.style.background = "rgba(255, 215, 0, 0.95)";
+        div.style.color = "#000";
+        setTimeout(() => {
+          if (div.parentNode) div.parentNode.removeChild(div);
+          warningBanner.style.display = warningBanner.children.length ? "block" : "none";
+        }, 5000);
+      }
+
+      warningBanner.appendChild(div);
+      warningBanner.style.display = "block";
+    }
+
+    function resize() {
+      // Match canvas to container box (iframe-safe)
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+    }
+
+    resize();
+    window.addEventListener("resize", resize);
+    window.addEventListener("orientationchange", () => setTimeout(resize, 200));
+
+    // Unity config (matches your provided template)
+    const config = {
+      arguments: [],
+      dataUrl: "Build/bs.data",
+      frameworkUrl: "Build/bs.framework.js",
+      codeUrl: "Build/bs.wasm",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "illusion Lab",
+      productName: "Block Smash",
+      productVersion: "0.9",
+      showBanner: unityShowBanner,
+
+      // If you want lower resolution on mobile, uncomment:
+      // devicePixelRatio: 1,
+    };
+
+    createUnityInstance(canvas, config, (progress) => {
+      if (bar) bar.style.width = Math.round(progress * 100) + "%";
+      if (progress >= 0.99 && loading) loading.style.display = "none";
+    }).catch((message) => {
+      alert(message);
+    });
+  </script>
+</body>
+</html>

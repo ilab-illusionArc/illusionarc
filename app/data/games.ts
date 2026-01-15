@@ -52,7 +52,7 @@ export const GAMES: ArcadeGame[] = [
     shortPitch: 'Neon reflex boss fights. Tap fast, survive longer, post score.',
     description:
       'Face fast-paced neon bosses with simple tap controls. Survive longer to increase score, dodge patterns, and climb the global leaderboard. Best experienced in landscape on mobile.',
-    controls: ['Tap / click to dodge', 'Survive as long as possible'],
+    controls: ['Tap to blink', 'Navigate the maze quickly'],
     buildType: 'iframe',
     sourceUrl: '/games/blink-maze/index.html',
     embedAllowed: true,
@@ -71,7 +71,7 @@ export const GAMES: ArcadeGame[] = [
     shortPitch: 'Neon reflex boss fights. Tap fast, survive longer, post score.',
     description:
       'Face fast-paced neon bosses with simple tap controls. Survive longer to increase score, dodge patterns, and climb the global leaderboard. Best experienced in landscape on mobile.',
-    controls: ['Tap / click to dodge', 'Survive as long as possible'],
+    controls: ['W / A / S / D or Arrow Keys — Move', 'Space — Fire', 'Q — Pull (Attract objects & energy)', 'E — Push (Repel enemies & hazards)', 'R — Reload'],
     buildType: 'iframe',
     sourceUrl: '/games/neon-polarity/index.html',
     embedAllowed: true,

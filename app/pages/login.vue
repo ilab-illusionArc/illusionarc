@@ -4,6 +4,8 @@ useHead({
   meta: [{ name: 'description', content: 'Login to play games on Illusion Arc.' }]
 })
 
+type RoleResponse = { role: 'admin' | 'user' | null; found?: boolean }
+
 const route = useRoute()
 const toast = useToast()
 
@@ -24,18 +26,12 @@ const nextUrl = computed(() => {
   return typeof n === 'string' && n.startsWith('/') ? n : '/arcade'
 })
 
-// If already logged in, go back immediately
-watchEffect(() => {
-  if (user.value) navigateTo(nextUrl.value, { replace: true })
-})
-
 function isEmailValid(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
 }
 
 function normalizeDisplayName(v: string) {
   const s = String(v || '').trim().replace(/\s+/g, ' ')
-  // allow letters, numbers, space, underscore, dash
   const cleaned = s.replace(/[^\p{L}\p{N} _-]/gu, '')
   return cleaned.slice(0, 24)
 }
@@ -48,11 +44,11 @@ function randomDisplayName() {
 }
 
 watch(
-    () => mode.value,
-    (m) => {
-      if (m === 'signup' && !displayName.value.trim()) displayName.value = randomDisplayName()
-    },
-    { immediate: true }
+  () => mode.value,
+  (m) => {
+    if (m === 'signup' && !displayName.value.trim()) displayName.value = randomDisplayName()
+  },
+  { immediate: true }
 )
 
 const canSubmit = computed(() => {
@@ -62,7 +58,35 @@ const canSubmit = computed(() => {
   return true
 })
 
-// Optional best-effort check (safe fallback if RLS blocks)
+async function getRole(): Promise<'admin' | 'user' | null> {
+  try {
+    const res = await $fetch<RoleResponse>('/api/auth/role')
+    return res.role
+  } catch {
+    return null
+  }
+}
+
+async function redirectAfterLogin() {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return
+
+  const role = await getRole()
+
+  if (role === 'admin') return navigateTo('/admin', { replace: true })
+  return navigateTo(nextUrl.value, { replace: true })
+}
+
+// If already logged in, redirect by role
+watch(
+  () => user.value?.id,
+  async (id) => {
+    if (!id) return
+    await redirectAfterLogin()
+  },
+  { immediate: true }
+)
+
 async function isDisplayNameTaken(name: string): Promise<boolean> {
   if (!import.meta.client) return false
   const n = normalizeDisplayName(name)
@@ -70,7 +94,7 @@ async function isDisplayNameTaken(name: string): Promise<boolean> {
 
   try {
     const client: any = supabase
-    const { data, error } = await client.from('profiles').select('id').eq('display_name', n).limit(1)
+    const { data, error } = await client.from('profiles').select('user_id').eq('display_name', n).limit(1)
     if (error) return false
     return Array.isArray(data) && data.length > 0
   } catch {
@@ -110,14 +134,17 @@ async function upsertProfileIfPossible(dn: string) {
     const u: any = user.value
     if (!u?.id) return
     const client: any = supabase
-    await client.from('profiles').upsert({
-      id: u.id,
+
+    const { error } = await client.from('profiles').upsert({
+      user_id: u.id,
       display_name: dn,
       avatar_url: u.user_metadata?.avatar_url || null,
       updated_at: new Date().toISOString()
     })
-  } catch {
-    // ignore
+
+    if (error) console.warn('profiles upsert error:', error.message)
+  } catch (e) {
+    console.warn('profiles upsert exception:', e)
   }
 }
 
@@ -144,13 +171,24 @@ async function submit() {
       })
       if (error) throw error
 
+      // ✅ ensures metadata display name exists
       await ensureDisplayNameAfterLogin()
 
+      // ✅ CRITICAL: ensure profiles row exists on every login
+      const u: any = user.value
+      const md = u?.user_metadata || {}
+      const dn =
+        normalizeDisplayName(md.display_name || md.full_name || md.name || '') ||
+        (await pickUniqueDisplayName(displayName.value || ''))
+      await upsertProfileIfPossible(dn)
+
       toast.add({ title: 'Welcome back', description: 'Logged in successfully.', color: 'success' })
-      await navigateTo(nextUrl.value, { replace: true })
+
+      await redirectAfterLogin()
       return
     }
 
+    // signup
     const picked = await pickUniqueDisplayName(displayName.value)
 
     const { data, error } = await supabase.auth.signUp({
@@ -171,13 +209,13 @@ async function submit() {
       color: 'success'
     })
 
-    await navigateTo(nextUrl.value, { replace: true })
+    await redirectAfterLogin()
   } catch (e: any) {
     const msg = String(e?.message || e?.error_description || '')
     const friendly =
-        msg.includes('duplicate') || msg.includes('23505')
-            ? 'That display name is already taken. Try another one.'
-            : msg || 'Please try again.'
+      msg.includes('duplicate') || msg.includes('23505')
+        ? 'That display name is already taken. Try another one.'
+        : msg || 'Please try again.'
 
     toast.add({ title: 'Auth failed', description: friendly, color: 'error' })
   } finally {
@@ -192,19 +230,16 @@ function continueBrowsing() {
 
 <template>
   <div class="authPage">
-    <!-- background layer uses theme vars -->
     <div class="bg" aria-hidden="true" />
     <div class="wash" aria-hidden="true" />
     <div class="noise" aria-hidden="true" />
 
-    <!-- soft blobs (theme-aware) -->
     <div class="orb orbA" aria-hidden="true" />
     <div class="orb orbB" aria-hidden="true" />
     <div class="orb orbC" aria-hidden="true" />
 
     <UContainer class="relative py-10 md:py-14">
       <div class="grid gap-8 lg:grid-cols-2 items-center">
-        <!-- Left -->
         <div class="max-w-xl">
           <div class="badge">
             <UIcon name="i-heroicons-lock-closed" class="w-4 h-4" />
@@ -254,11 +289,11 @@ function continueBrowsing() {
           </div>
 
           <div class="mt-6 text-xs opacity-60">
-            After login you’ll return to: <span class="opacity-100">{{ nextUrl }}</span>
+            After login you’ll return to:
+            <span class="opacity-100">{{ nextUrl }}</span>
           </div>
         </div>
 
-        <!-- Right -->
         <div class="lg:justify-self-end w-full max-w-xl">
           <div class="card">
             <div class="cardHead">
@@ -293,10 +328,10 @@ function continueBrowsing() {
 
                 <UFormGroup v-if="mode === 'signup'" label="Display name (optional)">
                   <UInput
-                      v-model="displayName"
-                      placeholder="e.g. Souvik / NeonRider1234"
-                      autocomplete="nickname"
-                      icon="i-heroicons-user"
+                    v-model="displayName"
+                    placeholder="e.g. Souvik / NeonRider1234"
+                    autocomplete="nickname"
+                    icon="i-heroicons-user"
                   />
                   <div class="mt-1 text-xs opacity-60 flex items-center justify-between">
                     <span>Must be unique.</span>
@@ -308,30 +343,29 @@ function continueBrowsing() {
 
                 <UFormGroup label="Password" required>
                   <UInput
-                      v-model="password"
-                      :type="showPass ? 'text' : 'password'"
-                      placeholder="••••••••"
-                      :autocomplete="mode === 'signin' ? 'current-password' : 'new-password'"
-                      icon="i-heroicons-key"
+                    v-model="password"
+                    :type="showPass ? 'text' : 'password'"
+                    placeholder="••••••••"
+                    :autocomplete="mode === 'signin' ? 'current-password' : 'new-password'"
+                    icon="i-heroicons-key"
                   />
                   <div class="mt-2 flex items-center justify-between">
                     <UButton size="xs" variant="ghost" @click="showPass = !showPass">
                       <UIcon :name="showPass ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'" class="w-4 h-4" />
                       {{ showPass ? 'Hide' : 'Show' }}
                     </UButton>
-
                     <div class="text-xs opacity-60">Min 6 chars</div>
                   </div>
                 </UFormGroup>
 
                 <div class="grid gap-2 sm:grid-cols-2">
                   <UButton
-                      color="primary"
-                      variant="solid"
-                      size="lg"
-                      :loading="loading"
-                      :disabled="!canSubmit"
-                      @click="submit"
+                    color="primary"
+                    variant="solid"
+                    size="lg"
+                    :loading="loading"
+                    :disabled="!canSubmit"
+                    @click="submit"
                   >
                     <UIcon name="i-heroicons-arrow-right-circle" class="w-5 h-5" />
                     {{ mode === 'signin' ? 'Login' : 'Create account' }}
@@ -364,165 +398,28 @@ function continueBrowsing() {
 </template>
 
 <style scoped>
-/* Page base should NOT force black/white. Use theme vars from main.css */
-.authPage{
-  position: relative;
-  min-height: calc(100dvh - 64px);
-  overflow: hidden;
-  color: var(--app-fg);
-}
-
-.bg{
-  position: absolute;
-  inset: 0;
-  background: var(--app-bg);
-}
-
-.wash{
-  position:absolute;
-  inset: 0;
-  background:
-      radial-gradient(900px 600px at 15% 20%, var(--wash-b), transparent 60%),
-      radial-gradient(900px 600px at 85% 30%, var(--wash-a), transparent 60%),
-      radial-gradient(900px 700px at 55% 90%, rgba(34,197,94,.10), transparent 60%),
-      linear-gradient(to bottom, rgba(255,255,255,.05), transparent 35%, rgba(255,255,255,.03));
-  opacity: .9;
-}
-
-.noise{
-  position:absolute;
-  inset:0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
-  opacity:.10;
-  mix-blend-mode: overlay;
-}
-
-.orb{
-  position:absolute;
-  border-radius:9999px;
-  filter: blur(24px);
-  opacity:.55;
-  transform: translateZ(0);
-  animation: float 9s ease-in-out infinite;
-}
-
-/* blobs are theme-friendly: rely on wash vars */
-.orbA{
-  width: 280px; height: 280px;
-  left: -90px; top: 80px;
-  background: radial-gradient(circle at 30% 30%, rgba(34,211,238,.35), rgba(34,211,238,.06) 60%, transparent 70%);
-}
-.orbB{
-  width: 320px; height: 320px;
-  right: -120px; top: 120px;
-  background: radial-gradient(circle at 30% 30%, rgba(124,58,237,.35), rgba(124,58,237,.06) 60%, transparent 70%);
-  animation-delay: -2s;
-}
-.orbC{
-  width: 360px; height: 360px;
-  left: 40%; bottom: -180px;
-  background: radial-gradient(circle at 30% 30%, rgba(34,197,94,.25), rgba(34,197,94,.05) 60%, transparent 70%);
-  animation-delay: -4s;
-}
-
-@keyframes float{
-  0%,100%{ transform: translateY(0) scale(1); }
-  50%{ transform: translateY(-14px) scale(1.02); }
-}
-
-.grad{
-  background: linear-gradient(90deg, rgba(34,211,238,1), rgba(124,58,237,1), rgba(34,197,94,1));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.badge{
-  display:inline-flex;
-  align-items:center;
-  gap:.5rem;
-  border-radius:9999px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
-  padding: .25rem .75rem;
-  font-size: .75rem;
-}
-
-/* Cards should not be white-only. Use translucent surfaces */
-.feature{
-  display:flex;
-  gap:.6rem;
-  align-items:flex-start;
-  padding:.85rem;
-  border-radius: 1.25rem;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
-  transition: transform .18s ease, background .18s ease, border-color .18s ease;
-}
-.feature:hover{
-  transform: translateY(-2px);
-  border-color: rgba(255,255,255,.18);
-  background: rgba(255,255,255,.06);
-}
-
-.card{
-  border-radius: 1.5rem;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.06);
-  box-shadow: 0 30px 80px rgba(0,0,0,.22);
-  overflow:hidden;
-  backdrop-filter: blur(10px);
-}
-
-.cardHead{
-  padding: 1.1rem 1.1rem .9rem;
-  border-bottom: 1px solid rgba(255,255,255,.10);
-  background: rgba(0,0,0,.10);
-}
-
-.cardBody{ padding: 1.1rem; }
-
-.toggle{
-  display:flex;
-  gap:.35rem;
-  padding:.25rem;
-  border-radius:9999px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
-}
-
-.pill{
-  padding: .45rem .75rem;
-  font-size: .85rem;
-  border-radius:9999px;
-  color: inherit;
-  opacity: .75;
-  transition: background .16s ease, opacity .16s ease, transform .16s ease;
-}
-.pill:hover{ transform: translateY(-1px); opacity: 1; }
-.pill.on{
-  background: rgba(255,255,255,.12);
-  opacity: 1;
-}
-
-.divider{
-  position:relative;
-  padding: .6rem 0;
-  display:flex;
-  justify-content:center;
-}
-.divider::before{
-  content:"";
-  position:absolute;
-  inset: 50% 0 auto;
-  height:1px;
-  background: rgba(255,255,255,.10);
-}
-.divider span{
-  position:relative;
-  padding: 0 .75rem;
-  background: rgba(0,0,0,.10);
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 9999px;
-}
+/* (your CSS unchanged — keep exactly as you already have) */
+.authPage { position: relative; min-height: calc(100dvh - 64px); overflow: hidden; color: var(--app-fg); }
+.bg { position: absolute; inset: 0; background: var(--app-bg); }
+.wash { position: absolute; inset: 0; background: radial-gradient(900px 600px at 15% 20%, var(--wash-b), transparent 60%), radial-gradient(900px 600px at 85% 30%, var(--wash-a), transparent 60%), radial-gradient(900px 700px at 55% 90%, rgba(34, 197, 94, 0.10), transparent 60%), linear-gradient(to bottom, rgba(255, 255, 255, 0.05), transparent 35%, rgba(255, 255, 255, 0.03)); opacity: 0.9; }
+.noise { position: absolute; inset: 0; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E"); opacity: 0.1; mix-blend-mode: overlay; }
+.orb { position: absolute; border-radius: 9999px; filter: blur(24px); opacity: 0.55; transform: translateZ(0); animation: float 9s ease-in-out infinite; }
+.orbA { width: 280px; height: 280px; left: -90px; top: 80px; background: radial-gradient(circle at 30% 30%, rgba(34, 211, 238, 0.35), rgba(34, 211, 238, 0.06) 60%, transparent 70%); }
+.orbB { width: 320px; height: 320px; right: -120px; top: 120px; background: radial-gradient(circle at 30% 30%, rgba(124, 58, 237, 0.35), rgba(124, 58, 237, 0.06) 60%, transparent 70%); animation-delay: -2s; }
+.orbC { width: 360px; height: 360px; left: 40%; bottom: -180px; background: radial-gradient(circle at 30% 30%, rgba(34, 197, 94, 0.25), rgba(34, 197, 94, 0.05) 60%, transparent 70%); animation-delay: -4s; }
+@keyframes float { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-14px) scale(1.02); } }
+.grad { background: linear-gradient(90deg, rgba(34, 211, 238, 1), rgba(124, 58, 237, 1), rgba(34, 197, 94, 1)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.badge { display: inline-flex; align-items: center; gap: 0.5rem; border-radius: 9999px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.04); padding: 0.25rem 0.75rem; font-size: 0.75rem; }
+.feature { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.85rem; border-radius: 1.25rem; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.04); transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease; }
+.feature:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.06); }
+.card { border-radius: 1.5rem; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.06); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.22); overflow: hidden; backdrop-filter: blur(10px); }
+.cardHead { padding: 1.1rem 1.1rem 0.9rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); background: rgba(0, 0, 0, 0.1); }
+.cardBody { padding: 1.1rem; }
+.toggle { display: flex; gap: 0.35rem; padding: 0.25rem; border-radius: 9999px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.04); }
+.pill { padding: 0.45rem 0.75rem; font-size: 0.85rem; border-radius: 9999px; color: inherit; opacity: 0.75; transition: background 0.16s ease, opacity 0.16s ease, transform 0.16s ease; }
+.pill:hover { transform: translateY(-1px); opacity: 1; }
+.pill.on { background: rgba(255, 255, 255, 0.12); opacity: 1; }
+.divider { position: relative; padding: 0.6rem 0; display: flex; justify-content: center; }
+.divider::before { content: ''; position: absolute; inset: 50% 0 auto; height: 1px; background: rgba(255, 255, 255, 0.1); }
+.divider span { position: relative; padding: 0 0.75rem; background: rgba(0, 0, 0, 0.1); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 9999px; }
 </style>

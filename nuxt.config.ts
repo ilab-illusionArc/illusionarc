@@ -292,6 +292,9 @@ export default defineNuxtConfig({
         }
       }
     },
+    '/admin/**': {
+      ssr: false
+    }
 
     
     

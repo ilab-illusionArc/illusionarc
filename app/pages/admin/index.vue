@@ -1,178 +1,246 @@
 <script setup lang="ts">
-definePageMeta({ layout: 'admin' })
-useHead({ title: 'Admin — illusion Arc' })
-
-const supabase = useSupabaseClient()
-
-const stats = reactive({
-  users: 0,
-  scores: 0,
-  messages: 0,
-  requests: 0
+definePageMeta({
+  layout: 'admin',
+  middleware: ['admin']
 })
 
-const recentMessages = ref<any[]>([])
-const recentScores = ref<any[]>([])
+useHead({ title: 'Admin — Dashboard' })
 
-async function load() {
-  // counts
-  const u = await supabase.from('profiles').select('user_id', { count: 'exact', head: true })
-  const s = await supabase.from('leaderboard_scores').select('id', { count: 'exact', head: true })
-  const m = await supabase.from('contact_messages').select('id', { count: 'exact', head: true })
-  const r = await supabase.from('contact_requests').select('id', { count: 'exact', head: true })
+const toast = useToast()
+const supabase = useSupabaseClient()
+const loading = ref(true)
 
-  stats.users = u.count || 0
-  stats.scores = s.count || 0
-  stats.messages = m.count || 0
-  stats.requests = r.count || 0
+const stats = ref({
+  users: 0,
+  newMessages: 0,
+  newRequests: 0,
+  scoreEvents: 0
+})
 
-  // recent lists
-  const rm = await supabase
-    .from('contact_messages')
-    .select('id, created_at, name, email, subject, status')
-    .order('created_at', { ascending: false })
-    .limit(6)
+async function loadStats(): Promise<void> {
+  loading.value = true
+  try {
+    const [{ count: users }, { count: msgs }, { count: reqs }, { count: scores }] = await Promise.all([
+      supabase.from('profiles').select('user_id', { count: 'exact', head: true }),
+      supabase.from('contact_messages').select('id', { count: 'exact', head: true }).eq('status', 'new'),
+      supabase.from('contact_requests').select('id', { count: 'exact', head: true }).eq('status', 'new'),
+      supabase.from('leaderboard_scores').select('id', { count: 'exact', head: true })
+    ])
 
-  recentMessages.value = rm.data || []
-
-  const rs = await supabase
-    .from('leaderboard_scores')
-    .select('id, created_at, game_slug, score, player_name, user_id')
-    .order('created_at', { ascending: false })
-    .limit(6)
-
-  recentScores.value = rs.data || []
+    stats.value = {
+      users: users || 0,
+      newMessages: msgs || 0,
+      newRequests: reqs || 0,
+      scoreEvents: scores || 0
+    }
+  } catch (e: any) {
+    toast.add({ title: 'Failed to load', description: e?.message || 'Try again.', color: 'error' })
+  } finally {
+    loading.value = false
+  }
 }
 
-onMounted(load)
+onMounted(loadStats)
+
+function n(v: number) {
+  return new Intl.NumberFormat().format(v || 0)
+}
 </script>
 
 <template>
-  <div class="page">
-    <div class="header">
-      <div>
-        <div class="h1">Admin Dashboard</div>
-        <div class="sub">Manage users, scores, and incoming messages.</div>
-      </div>
-      <div class="actions">
-        <UButton variant="soft" @click="() => navigateTo('/admin/messages')">Messages</UButton>
-        <UButton color="primary" variant="solid" @click="() => navigateTo('/admin/users')">Users</UButton>
+  <div class="space-y-4">
+    <!-- HERO -->
+    <div
+        class="relative overflow-hidden rounded-3xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 p-5 lg:p-6 shadow-[0_30px_90px_rgba(0,0,0,.12)] dark:shadow-[0_30px_90px_rgba(0,0,0,.30)] backdrop-blur"
+    >
+      <!-- top wash -->
+      <div
+          class="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full blur-3xl opacity-60"
+          style="background: radial-gradient(circle at 30% 30%, rgba(34,211,238,.28), transparent 60%);"
+          aria-hidden="true"
+      />
+      <div
+          class="pointer-events-none absolute -bottom-32 -left-32 h-80 w-80 rounded-full blur-3xl opacity-60"
+          style="background: radial-gradient(circle at 30% 30%, rgba(124,58,237,.26), transparent 60%);"
+          aria-hidden="true"
+      />
+
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div class="min-w-0">
+          <div class="inline-flex items-center gap-2 rounded-full border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-1.5 text-xs text-black/60 dark:text-white/60">
+            <span class="h-2 w-2 rounded-full"
+                  style="background: radial-gradient(circle at 30% 30%, #22d3ee, #7c3aed); box-shadow: 0 0 0 6px rgba(34,211,238,.10);" />
+            Command Center
+          </div>
+
+          <h1 class="mt-3 text-2xl lg:text-3xl font-extrabold tracking-tight text-black dark:text-white">
+            System Overview
+          </h1>
+          <p class="mt-1 text-sm text-black/60 dark:text-white/60 max-w-xl">
+            Monitor inbox, requests, users and leaderboard activity — all in one place.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button
+              type="button"
+              class="inline-flex items-center gap-2 rounded-2xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-4 py-2.5 text-sm hover:bg-black/10 dark:hover:bg-white/10 transition"
+              @click="loadStats"
+          >
+            <UIcon name="i-heroicons-arrow-path" class="h-5 w-5 opacity-80" />
+            Refresh
+          </button>
+
+          <NuxtLink
+              to="/admin/scores"
+              class="inline-flex items-center gap-2 rounded-2xl border border-cyan-400/30 bg-gradient-to-br from-cyan-400/15 via-violet-500/10 to-emerald-500/10 px-4 py-2.5 text-sm font-semibold hover:from-cyan-400/20 hover:via-violet-500/15 hover:to-emerald-500/15 transition"
+          >
+            <UIcon name="i-heroicons-trophy" class="h-5 w-5 opacity-90" />
+            Open Scores
+          </NuxtLink>
+        </div>
       </div>
     </div>
 
-    <div class="cards">
-      <div class="kpi">
-        <div class="k">Users</div>
-        <div class="v">{{ stats.users }}</div>
+    <!-- KPI GRID -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      <!-- KPI card component style -->
+      <div class="rounded-3xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 p-4 backdrop-blur">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="h-11 w-11 rounded-2xl grid place-items-center border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5">
+              <UIcon name="i-heroicons-users" class="h-5 w-5 opacity-80" />
+            </div>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-black dark:text-white">Users</div>
+              <div class="text-xs text-black/60 dark:text-white/60 truncate">profiles</div>
+            </div>
+          </div>
+
+          <NuxtLink to="/admin/users" class="text-xs text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white transition">
+            Open →
+          </NuxtLink>
+        </div>
+
+        <div class="mt-4 text-3xl font-extrabold tracking-tight text-black dark:text-white tabular-nums">
+          <span v-if="loading" class="inline-block h-9 w-20 rounded-xl bg-black/10 dark:bg-white/10 animate-pulse" />
+          <span v-else>{{ n(stats.users) }}</span>
+        </div>
       </div>
-      <div class="kpi">
-        <div class="k">Scores</div>
-        <div class="v">{{ stats.scores }}</div>
+
+      <div class="rounded-3xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 p-4 backdrop-blur">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="h-11 w-11 rounded-2xl grid place-items-center border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5">
+              <UIcon name="i-heroicons-inbox" class="h-5 w-5 opacity-80" />
+            </div>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-black dark:text-white">New Messages</div>
+              <div class="text-xs text-black/60 dark:text-white/60 truncate">contact_messages.status=new</div>
+            </div>
+          </div>
+
+          <NuxtLink to="/admin/messages" class="text-xs text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white transition">
+            Open →
+          </NuxtLink>
+        </div>
+
+        <div class="mt-4 text-3xl font-extrabold tracking-tight text-black dark:text-white tabular-nums">
+          <span v-if="loading" class="inline-block h-9 w-20 rounded-xl bg-black/10 dark:bg-white/10 animate-pulse" />
+          <span v-else>{{ n(stats.newMessages) }}</span>
+        </div>
       </div>
-      <div class="kpi">
-        <div class="k">Messages</div>
-        <div class="v">{{ stats.messages }}</div>
+
+      <div class="rounded-3xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 p-4 backdrop-blur">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="h-11 w-11 rounded-2xl grid place-items-center border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5">
+              <UIcon name="i-heroicons-clipboard-document-list" class="h-5 w-5 opacity-80" />
+            </div>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-black dark:text-white">New Requests</div>
+              <div class="text-xs text-black/60 dark:text-white/60 truncate">contact_requests.status=new</div>
+            </div>
+          </div>
+
+          <NuxtLink to="/admin/requests" class="text-xs text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white transition">
+            Open →
+          </NuxtLink>
+        </div>
+
+        <div class="mt-4 text-3xl font-extrabold tracking-tight text-black dark:text-white tabular-nums">
+          <span v-if="loading" class="inline-block h-9 w-20 rounded-xl bg-black/10 dark:bg-white/10 animate-pulse" />
+          <span v-else>{{ n(stats.newRequests) }}</span>
+        </div>
       </div>
-      <div class="kpi">
-        <div class="k">Requests</div>
-        <div class="v">{{ stats.requests }}</div>
+
+      <div class="rounded-3xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 p-4 backdrop-blur">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="h-11 w-11 rounded-2xl grid place-items-center border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5">
+              <UIcon name="i-heroicons-bolt" class="h-5 w-5 opacity-80" />
+            </div>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-black dark:text-white">Score Events</div>
+              <div class="text-xs text-black/60 dark:text-white/60 truncate">leaderboard_scores</div>
+            </div>
+          </div>
+
+          <NuxtLink to="/admin/scores" class="text-xs text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white transition">
+            Open →
+          </NuxtLink>
+        </div>
+
+        <div class="mt-4 text-3xl font-extrabold tracking-tight text-black dark:text-white tabular-nums">
+          <span v-if="loading" class="inline-block h-9 w-20 rounded-xl bg-black/10 dark:bg-white/10 animate-pulse" />
+          <span v-else>{{ n(stats.scoreEvents) }}</span>
+        </div>
       </div>
     </div>
 
-    <div class="grid">
-      <section class="card">
-        <div class="cardTitle">Recent Messages</div>
-
-        <div v-if="recentMessages.length" class="list">
-          <div v-for="m in recentMessages" :key="m.id" class="row">
-            <div class="meta">
-              <div class="t">{{ m.name }} <span class="dim">· {{ m.email }}</span></div>
-              <div class="dim">{{ m.subject || 'No subject' }}</div>
+    <!-- ACTION PANELS -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <NuxtLink
+          to="/admin/messages"
+          class="group rounded-3xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 p-5 backdrop-blur hover:bg-black/5 dark:hover:bg-white/10 transition"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-lg font-extrabold tracking-tight text-black dark:text-white">Inbox</div>
+            <div class="mt-1 text-sm text-black/60 dark:text-white/60">
+              Read messages, open details, and update status.
             </div>
-            <UBadge :label="m.status" variant="soft" />
+          </div>
+          <div class="h-12 w-12 rounded-2xl grid place-items-center border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 group-hover:scale-[1.02] transition">
+            <UIcon name="i-heroicons-inbox" class="h-6 w-6 opacity-80" />
           </div>
         </div>
 
-        <div v-else class="empty">No messages yet.</div>
-      </section>
+        <div class="mt-4 text-sm font-semibold text-black/70 dark:text-white/70 group-hover:text-black dark:group-hover:text-white transition">
+          Open →
+        </div>
+      </NuxtLink>
 
-      <section class="card">
-        <div class="cardTitle">Recent Scores</div>
-
-        <div v-if="recentScores.length" class="list">
-          <div v-for="s in recentScores" :key="s.id" class="row">
-            <div class="meta">
-              <div class="t">{{ s.game_slug }} <span class="dim">· {{ s.player_name || 'Player' }}</span></div>
-              <div class="dim">{{ new Date(s.created_at).toLocaleString() }}</div>
+      <NuxtLink
+          to="/admin/scores"
+          class="group rounded-3xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 p-5 backdrop-blur hover:bg-black/5 dark:hover:bg-white/10 transition"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-lg font-extrabold tracking-tight text-black dark:text-white">Leaderboards</div>
+            <div class="mt-1 text-sm text-black/60 dark:text-white/60">
+              Daily, weekly, and all-time winners plus score history.
             </div>
-            <div class="score">{{ s.score }}</div>
+          </div>
+          <div class="h-12 w-12 rounded-2xl grid place-items-center border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 group-hover:scale-[1.02] transition">
+            <UIcon name="i-heroicons-trophy" class="h-6 w-6 opacity-80" />
           </div>
         </div>
 
-        <div v-else class="empty">No scores yet.</div>
-      </section>
+        <div class="mt-4 text-sm font-semibold text-black/70 dark:text-white/70 group-hover:text-black dark:group-hover:text-white transition">
+          Open →
+        </div>
+      </NuxtLink>
     </div>
   </div>
 </template>
-
-<style scoped>
-.page{ display:grid; gap:14px; }
-.header{
-  display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
-  padding: 14px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.06);
-  backdrop-filter: blur(10px);
-}
-.h1{ font-size: 1.35rem; font-weight: 900; letter-spacing: -.02em; }
-.sub{ opacity:.7; margin-top:4px; }
-.actions{ display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
-
-.cards{
-  display:grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-@media (max-width: 980px){ .cards{ grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 520px){ .cards{ grid-template-columns: 1fr; } }
-
-.kpi{
-  padding: 14px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.05);
-  backdrop-filter: blur(10px);
-}
-.k{ font-size:.8rem; opacity:.7; }
-.v{ margin-top:6px; font-size: 1.6rem; font-weight: 900; letter-spacing:-.02em; }
-
-.grid{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-@media (max-width: 980px){ .grid{ grid-template-columns: 1fr; } }
-
-.card{
-  padding: 14px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.05);
-  backdrop-filter: blur(10px);
-}
-.cardTitle{ font-weight: 900; letter-spacing:-.02em; margin-bottom:10px; }
-.list{ display:grid; gap:10px; }
-.row{
-  display:flex; align-items:center; justify-content:space-between; gap:12px;
-  padding: 10px 10px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,.08);
-  background: rgba(255,255,255,.03);
-}
-.meta{ min-width:0; }
-.t{ font-weight: 700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.dim{ opacity:.65; font-size:.82rem; }
-.score{ font-weight: 900; font-size: 1.1rem; }
-.empty{ opacity:.65; padding: 10px 2px; }
-</style>

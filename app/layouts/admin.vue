@@ -2,20 +2,10 @@
 type RoleResponse = { role: 'admin' | 'user' | null; found: boolean }
 
 const route = useRoute()
+const toast = useToast()
 const supabase = useSupabaseClient()
-const ready = ref(false)
 
-const nav = [
-  { label: 'Dashboard', to: '/admin', icon: 'i-heroicons-squares-2x2' },
-  { label: 'Users', to: '/admin/users', icon: 'i-heroicons-users' },
-  { label: 'Scores', to: '/admin/scores', icon: 'i-heroicons-trophy' },
-  { label: 'Messages', to: '/admin/messages', icon: 'i-heroicons-inbox' },
-  { label: 'Requests', to: '/admin/requests', icon: 'i-heroicons-clipboard-document-check' }
-]
-
-async function go(path: string): Promise<void> {
-  await navigateTo(path)
-}
+const checking = ref(true)
 
 async function signOut(): Promise<void> {
   await supabase.auth.signOut()
@@ -24,158 +14,244 @@ async function signOut(): Promise<void> {
 
 onMounted(async () => {
   try {
+    // 1) session check
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) return navigateTo({ path: '/login', query: { next: route.fullPath } })
+    if (!session) {
+      await navigateTo({ path: '/login', query: { next: route.fullPath } })
+      return
+    }
 
+    // 2) role check
     const res = await $fetch<RoleResponse>('/api/auth/role')
-    if (res.role !== 'admin') return navigateTo('/', { replace: true })
-
-    ready.value = true
-  } catch {
-    return navigateTo('/', { replace: true })
+    if (res.role !== 'admin') {
+      await navigateTo('/', { replace: true })
+      return
+    }
+  } catch (e: any) {
+    toast.add({ title: 'Access check failed', description: e?.message || 'Please login again.', color: 'error' })
+    await navigateTo({ path: '/login', query: { next: route.fullPath } })
+  } finally {
+    checking.value = false
   }
 })
 </script>
 
 <template>
-  <div class="shell">
-    <!-- loader gate -->
-    <div v-if="!ready" class="loaderWrap" aria-label="Loading">
-      <div class="loaderCard">
-        <div class="rings" aria-hidden="true">
-          <span class="ring r1" />
-          <span class="ring r2" />
-          <span class="ring r3" />
+  <div
+      class="min-h-dvh text-[var(--app-fg)]"
+  >
+    <!-- FULLSCREEN LOADER (prevents flash) -->
+    <div
+        v-if="checking"
+        class="fixed inset-0 z-[9999] grid place-items-center bg-[var(--app-bg)]"
+    >
+      <!-- background wash -->
+      <div
+          class="absolute inset-0 opacity-90"
+          style="
+          background:
+            radial-gradient(1100px 700px at 20% 0%, rgba(124,58,237,.22), transparent 60%),
+            radial-gradient(900px 600px at 80% 15%, rgba(34,211,238,.16), transparent 60%),
+            radial-gradient(900px 700px at 55% 90%, rgba(34,197,94,.10), transparent 60%);
+        "
+          aria-hidden="true"
+      />
+
+      <!-- card -->
+      <div
+          class="relative flex items-center gap-4 rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 px-5 py-4 shadow-[0_30px_90px_rgba(0,0,0,.25)] backdrop-blur"
+      >
+        <!-- animated ring -->
+        <div class="relative h-10 w-10">
+          <div
+              class="absolute inset-0 rounded-full border-4 border-black/10 dark:border-white/15"
+          />
+          <div
+              class="absolute inset-0 rounded-full border-4 border-transparent border-t-cyan-400 border-l-violet-500 animate-spin"
+          />
+          <div
+              class="absolute inset-2 rounded-full bg-black/5 dark:bg-white/5"
+          />
         </div>
-        <div class="bar" aria-hidden="true"><span class="fill" /></div>
+
+        <div class="min-w-0">
+          <div class="text-sm font-semibold tracking-tight">
+            Authorizing admin
+          </div>
+          <div class="mt-1 text-xs text-black/60 dark:text-white/60">
+            Preparing console…
+          </div>
+        </div>
       </div>
     </div>
 
-    <div v-else class="app">
-      <aside class="side">
-        <div class="brand">
-          <div class="dot" />
-          <div class="txt">
-            <div class="t1">illusion Arc</div>
-            <div class="t2">Admin Panel</div>
+    <!-- SHELL -->
+    <div class="min-h-dvh">
+      <!-- Mobile top bar -->
+      <div
+          class="lg:hidden sticky top-0 z-30 border-b border-black/10 dark:border-white/10 bg-white/70 dark:bg-black/30 backdrop-blur"
+      >
+        <div class="px-4 py-3 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <div
+                class="h-10 w-10 rounded-xl grid place-items-center border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 font-bold"
+                style="background: radial-gradient(circle at 30% 30%, rgba(34,211,238,.22), rgba(124,58,237,.16));"
+            >
+              IA
+            </div>
+            <div class="min-w-0">
+              <div class="font-semibold leading-5 truncate">Admin</div>
+              <div class="text-xs text-black/60 dark:text-white/60 truncate">{{ route.path }}</div>
+            </div>
+          </div>
+
+          <!-- quick actions -->
+          <div class="flex items-center gap-2">
+            <NuxtLink
+                to="/admin/messages"
+                class="inline-flex items-center gap-2 rounded-full border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-2 text-xs hover:bg-black/10 dark:hover:bg-white/10 transition"
+            >
+              <UIcon name="i-heroicons-inbox" class="h-4 w-4" />
+              Inbox
+            </NuxtLink>
+
+            <NuxtLink
+                to="/admin/scores"
+                class="inline-flex items-center gap-2 rounded-full border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-2 text-xs hover:bg-black/10 dark:hover:bg-white/10 transition"
+            >
+              <UIcon name="i-heroicons-trophy" class="h-4 w-4" />
+            </NuxtLink>
           </div>
         </div>
+      </div>
 
-        <nav class="nav">
-          <button
-            v-for="item in nav"
-            :key="item.to"
-            class="navItem"
-            :class="{ on: route.path === item.to }"
-            type="button"
-            @click="() => go(item.to)"
+      <div class="lg:grid lg:grid-cols-[300px_1fr] lg:min-h-dvh">
+        <!-- Sidebar (desktop) / Bottom nav style (mobile) -->
+        <aside
+            class="
+            lg:sticky lg:top-0 lg:h-dvh
+            lg:border-r lg:border-black/10 lg:dark:border-white/10
+            lg:bg-white/60 lg:dark:bg-white/5 lg:backdrop-blur
+            p-4
+          "
+        >
+          <!-- Brand -->
+          <div
+              class="hidden lg:flex items-center gap-3 rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 p-3 backdrop-blur"
           >
-            <UIcon :name="item.icon" class="w-5 h-5" />
-            <span>{{ item.label }}</span>
-          </button>
-        </nav>
+            <div
+                class="h-12 w-12 rounded-2xl grid place-items-center border border-black/10 dark:border-white/10 font-bold"
+                style="background: radial-gradient(circle at 30% 30%, rgba(34,211,238,.22), rgba(124,58,237,.16));"
+            >
+              IA
+            </div>
+            <div class="min-w-0">
+              <div class="font-semibold truncate">illusion Arc</div>
+              <div class="text-xs text-black/60 dark:text-white/60 truncate">Admin Console</div>
+            </div>
+          </div>
 
-        <div class="bottom">
-          <UButton variant="soft" block @click="signOut">
-            <UIcon name="i-heroicons-arrow-right-on-rectangle" class="w-4 h-4" />
-            Sign out
-          </UButton>
-        </div>
-      </aside>
+          <!-- Nav -->
+          <nav class="mt-0 lg:mt-4 grid gap-2">
+            <NuxtLink
+                to="/admin"
+                class="inline-flex items-center gap-3 rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 px-4 py-3 hover:bg-black/5 dark:hover:bg-white/10 transition"
+            >
+              <UIcon name="i-heroicons-squares-2x2" class="h-5 w-5 opacity-80" />
+              <span class="font-medium">Dashboard</span>
+            </NuxtLink>
 
-      <main class="main">
-        <slot />
-      </main>
+            <NuxtLink
+                to="/admin/messages"
+                class="inline-flex items-center gap-3 rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 px-4 py-3 hover:bg-black/5 dark:hover:bg-white/10 transition"
+            >
+              <UIcon name="i-heroicons-inbox" class="h-5 w-5 opacity-80" />
+              <span class="font-medium">Messages</span>
+            </NuxtLink>
+
+            <NuxtLink
+                to="/admin/requests"
+                class="inline-flex items-center gap-3 rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 px-4 py-3 hover:bg-black/5 dark:hover:bg-white/10 transition"
+            >
+              <UIcon name="i-heroicons-clipboard-document-list" class="h-5 w-5 opacity-80" />
+              <span class="font-medium">Requests</span>
+            </NuxtLink>
+
+            <NuxtLink
+                to="/admin/users"
+                class="inline-flex items-center gap-3 rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 px-4 py-3 hover:bg-black/5 dark:hover:bg-white/10 transition"
+            >
+              <UIcon name="i-heroicons-users" class="h-5 w-5 opacity-80" />
+              <span class="font-medium">Users</span>
+            </NuxtLink>
+
+            <NuxtLink
+                to="/admin/scores"
+                class="inline-flex items-center gap-3 rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 px-4 py-3 hover:bg-black/5 dark:hover:bg-white/10 transition"
+            >
+              <UIcon name="i-heroicons-trophy" class="h-5 w-5 opacity-80" />
+              <span class="font-medium">Scores</span>
+            </NuxtLink>
+          </nav>
+
+          <!-- Footer -->
+          <div class="mt-4 lg:mt-6 grid gap-2">
+            <button
+                type="button"
+                class="inline-flex items-center justify-center gap-2 rounded-2xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-4 py-3 text-sm hover:bg-black/10 dark:hover:bg-white/10 transition"
+                @click="() => navigateTo('/', { replace: true })"
+            >
+              <UIcon name="i-heroicons-arrow-left" class="h-5 w-5 opacity-80" />
+              Back to site
+            </button>
+
+            <button
+                type="button"
+                class="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/25 bg-red-500/5 px-4 py-3 text-sm hover:bg-red-500/10 transition"
+                @click="signOut"
+            >
+              <UIcon name="i-heroicons-arrow-right-on-rectangle" class="h-5 w-5 opacity-80" />
+              Sign out
+            </button>
+          </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="p-4 lg:p-6">
+          <!-- Desktop topbar -->
+          <div
+              class="hidden lg:flex items-center justify-between gap-3 rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 px-4 py-3 backdrop-blur"
+          >
+            <div class="flex items-center gap-3 min-w-0">
+              <span class="h-2.5 w-2.5 rounded-full"
+                    style="background: radial-gradient(circle at 30% 30%, #22d3ee, #7c3aed); box-shadow: 0 0 0 6px rgba(34,211,238,.10);" />
+              <div class="text-sm text-black/60 dark:text-white/60 truncate">{{ route.path }}</div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <NuxtLink
+                  to="/admin/scores"
+                  class="inline-flex items-center gap-2 rounded-full border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-2 text-xs hover:bg-black/10 dark:hover:bg-white/10 transition"
+              >
+                <UIcon name="i-heroicons-trophy" class="h-4 w-4" />
+                Leaderboards
+              </NuxtLink>
+
+              <NuxtLink
+                  to="/admin/messages"
+                  class="inline-flex items-center gap-2 rounded-full border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-2 text-xs hover:bg-black/10 dark:hover:bg-white/10 transition"
+              >
+                <UIcon name="i-heroicons-inbox" class="h-4 w-4" />
+                Inbox
+              </NuxtLink>
+            </div>
+          </div>
+
+          <div class="mt-4 lg:mt-5">
+            <slot />
+          </div>
+        </main>
+      </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.shell{ min-height:100dvh; background:var(--app-bg); color:var(--app-fg); }
-.app{ min-height:100dvh; display:grid; grid-template-columns: 280px 1fr; }
-@media (max-width: 920px){ .app{ grid-template-columns: 1fr; } .side{ position:sticky; top:0; z-index:10; } }
-
-.side{
-  border-right: 1px solid rgba(255,255,255,.08);
-  background: rgba(255,255,255,.03);
-  backdrop-filter: blur(10px);
-  padding: 14px;
-  display:flex;
-  flex-direction:column;
-  gap: 12px;
-}
-
-.brand{
-  display:flex; gap:10px; align-items:center;
-  padding: 10px 10px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,.08);
-  background: rgba(255,255,255,.04);
-}
-.dot{
-  width:10px; height:10px; border-radius:9999px;
-  background: linear-gradient(90deg, rgba(34,211,238,1), rgba(124,58,237,1), rgba(34,197,94,1));
-  box-shadow: 0 0 16px rgba(34,211,238,.35);
-}
-.t1{ font-weight:800; letter-spacing:-.02em; }
-.t2{ font-size:.75rem; opacity:.65; margin-top:2px; }
-
-.nav{ display:grid; gap:8px; }
-.navItem{
-  display:flex; align-items:center; gap:10px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,.08);
-  background: rgba(255,255,255,.03);
-  opacity: .88;
-  transition: transform .12s ease, background .12s ease, opacity .12s ease;
-}
-.navItem:hover{ transform: translateY(-1px); background: rgba(255,255,255,.05); opacity: 1; }
-.navItem.on{
-  background: rgba(255,255,255,.07);
-  border-color: rgba(255,255,255,.14);
-  opacity: 1;
-}
-
-.bottom{ margin-top:auto; }
-
-.main{
-  padding: 16px;
-  min-height: 100dvh;
-}
-
-/* loader */
-.loaderWrap{ min-height:100dvh; display:grid; place-items:center; }
-.loaderCard{
-  width:min(420px, calc(100vw - 32px));
-  padding: 22px;
-  border-radius: 22px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.06);
-  box-shadow: 0 30px 90px rgba(0,0,0,.28);
-  backdrop-filter: blur(12px);
-}
-.rings{ height:120px; display:grid; place-items:center; position:relative; margin-bottom:10px; }
-.ring{ position:absolute; border-radius:9999px; border:2px solid rgba(255,255,255,.12); }
-.r1{ width:86px; height:86px; border-top-color: rgba(34,211,238,.85); animation: spin 1.1s linear infinite; }
-.r2{ width:110px; height:110px; border-right-color: rgba(124,58,237,.85); animation: spin 1.55s linear infinite reverse; }
-.r3{ width:134px; height:134px; border-bottom-color: rgba(34,197,94,.75); animation: spin 2.0s linear infinite; }
-@keyframes spin{ to{ transform: rotate(360deg); } }
-.bar{
-  height:10px; border-radius:9999px;
-  background: rgba(255,255,255,.08);
-  border: 1px solid rgba(255,255,255,.10);
-  overflow:hidden;
-}
-.fill{
-  display:block; height:100%; width:45%;
-  border-radius:9999px;
-  background: linear-gradient(90deg, rgba(34,211,238,.95), rgba(124,58,237,.95), rgba(34,197,94,.9));
-  animation: sweep 1.15s ease-in-out infinite;
-}
-@keyframes sweep{
-  0%{ transform: translateX(-110%); }
-  50%{ transform: translateX(70%); }
-  100%{ transform: translateX(210%); }
-}
-</style>

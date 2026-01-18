@@ -67,11 +67,19 @@ async function getRole(): Promise<'admin' | 'user' | null> {
   }
 }
 
+function hardReloadTo(path: string) {
+  if (!import.meta.client) return
+  // full URL ensures it works from any route
+  window.location.assign(path)
+}
+
 async function redirectAfterLogin() {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) return
 
   const role = await getRole()
+
+  if(role === 'admin') hardReloadTo('/admin')
 
   if (role === 'admin') return navigateTo('/admin', { replace: true })
   return navigateTo(nextUrl.value, { replace: true })

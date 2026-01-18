@@ -76,7 +76,7 @@ export default defineNuxtConfig({
    */
   runtimeConfig: {
     // server-only
-    supabaseServiceRoleKey: process.env.SUPABASE_SECRET_KEY,
+    supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
 
     // client-exposed (safe: anon key + url)
     public: {

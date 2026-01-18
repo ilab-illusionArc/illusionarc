@@ -5,35 +5,20 @@ export default defineNuxtRouteMiddleware(async (to) => {
 
   const supabase = useSupabaseClient()
 
-  // 🟡 WAIT for auth to be ready (ONLY once per navigation)
-  let ready = false
-  const { data: listener } = supabase.auth.onAuthStateChange(() => {
-    ready = true
-  })
+  // ✅ Always get session directly (this is the truth)
+  const { data, error } = await supabase.auth.getSession()
+  const session = data?.session
 
-  if (!ready) {
-    await new Promise((resolve) => setTimeout(resolve, 0))
+  if (error) {
+    console.warn('getSession error:', error.message)
   }
-
-  listener?.subscription?.unsubscribe()
-
-  // 1) Must have session
-  const {
-    data: { session }
-  } = await supabase.auth.getSession()
 
   if (!session) {
-    return navigateTo(
-      { path: '/login', query: { next: to.fullPath } },
-      { replace: true }
-    )
+    return navigateTo({ path: '/login', query: { next: to.fullPath } }, { replace: true })
   }
 
-  // 2) Must be admin (SERVER decides)
-  const res = await $fetch<RoleResponse>('/api/auth/role', {
-    credentials: 'include'
-  })
-
+  // ✅ Role check (server decides)
+  const res = await $fetch<RoleResponse>('/api/auth/role', { credentials: 'include' })
   if (res.role !== 'admin') {
     return navigateTo('/', { replace: true })
   }

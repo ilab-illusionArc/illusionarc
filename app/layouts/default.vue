@@ -106,6 +106,7 @@
           <UButton variant="ghost" to="/work" @click="open=false">Work</UButton>
           <UButton variant="ghost" to="/services" @click="open=false">Services</UButton>
           <UButton variant="ghost" to="/arcade" @click="open=false">Arcade</UButton>
+          <UButton variant="ghost" to="/apps" @click="open=false">Apps</UButton>
           <UButton variant="ghost" to="/about" @click="open=false">About</UButton>
           <UButton variant="ghost" to="/arcade/leaderboard" @click="open=false">Leaderboard</UButton>
           <UButton variant="ghost" to="/arcade/winners" @click="open=false">Winners</UButton>

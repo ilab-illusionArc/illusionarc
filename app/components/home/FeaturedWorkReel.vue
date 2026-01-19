@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PLACEHOLDER_IMG } from '~/constants/media'
 const { works } = useContent()
-const featured = computed(() => works.slice(0, 8))
+const featured = computed(() => works.value.slice(0, 8))
 </script>
 
 <template>

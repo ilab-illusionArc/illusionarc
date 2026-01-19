@@ -17,6 +17,7 @@
           <UButton variant="ghost" to="/work">Work</UButton>
           <UButton variant="ghost" to="/services">Services</UButton>
           <UButton variant="ghost" to="/arcade">Arcade</UButton>
+          <UButton variant="ghost" to="/apps">Apps</UButton>
           <UButton variant="ghost" to="/about">About</UButton>
           <UButton variant="ghost" to="/arcade/leaderboard">Leaderboard</UButton>
           <UButton variant="ghost" to="/arcade/winners">Winners</UButton>

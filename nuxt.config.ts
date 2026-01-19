@@ -217,98 +217,91 @@ export default defineNuxtConfig({
       }
     },
   },
-
-  /**
-   * ROUTE-SPECIFIC SECURITY (IMPORTANT)
-   * Use routeRules.security for nuxt-security options — NOT routeRules.headers. :contentReference[oaicite:14]{index=14}
-   */
   routeRules: {
-    /**
-     * EMBED ROUTES:
-     * If you truly want “any site can embed”, keep frame-ancestors ["*"].
-     * Better: replace "*" with partner domains later.
-     */
+    // ✅ Embeds: allow framing, avoid COOP/COEP issues
     '/embed/**': {
       security: {
         headers: {
-          // Allow embedding for this route group
-          xFrameOptions: false, // disable X-Frame-Options so CSP governs framing :contentReference[oaicite:15]{index=15}
+          xFrameOptions: false,
           contentSecurityPolicy: {
-            'frame-ancestors': [
-              "'self'",
-              'https://illusionarc.com',
-              'https://www.illusionarc.com'
-            ]
+            'frame-ancestors': ["'self'", 'https://illusionarc.com', 'https://www.illusionarc.com']
           },
-
-          // Embeds often break with COOP/COEP, so disable for embeds unless you need isolation there
           crossOriginEmbedderPolicy: false,
           crossOriginOpenerPolicy: false
         }
       }
     },
+
+    // ✅ Arcade: allow framing (same as embed)
     '/arcade/**': {
       security: {
         headers: {
-          // Allow embedding for this route group
-          xFrameOptions: false, // disable X-Frame-Options so CSP governs framing :contentReference[oaicite:15]{index=15}
+          xFrameOptions: false,
           contentSecurityPolicy: {
-            'frame-ancestors': [
-              "'self'",
-              'https://illusionarc.com',
-              'https://www.illusionarc.com'
-            ]
+            'frame-ancestors': ["'self'", 'https://illusionarc.com', 'https://www.illusionarc.com']
           },
-
-          // Embeds often break with COOP/COEP, so disable for embeds unless you need isolation there
           crossOriginEmbedderPolicy: false,
           crossOriginOpenerPolicy: false
         }
       }
     },
+
+    // ✅ Games: relaxed asset loading + allow framing
     '/games/**': {
       security: {
         headers: {
-          // Games may need relaxed CSP for 3rd-party assets; adjust as needed
+          xFrameOptions: false,
           contentSecurityPolicy: {
-            'frame-ancestors': [
-              "'self'",
-              'https://illusionarc.com',
-              'https://www.illusionarc.com'
-            ],
+            'frame-ancestors': ["'self'", 'https://illusionarc.com', 'https://www.illusionarc.com'],
             'img-src': ["'self'", 'data:', 'https:', 'blob:'],
+            'media-src': ["'self'", 'data:', 'https:', 'blob:'],
             'script-src': [
               "'self'",
               "'nonce-{{nonce}}'",
               'https://cdnjs.cloudflare.com',
               'https://cdn.jsdelivr.net'
             ],
-            'style-src': [
-              "'self'",
-              'https:',
-              "'unsafe-inline'"
-            ]
+            'style-src': ["'self'", 'https:', "'unsafe-inline'"]
+          },
+          crossOriginEmbedderPolicy: false,
+          crossOriginOpenerPolicy: false
+        }
+      }
+    },
+
+    // ✅ Apps: default strict (inherits global)
+    // But Panorama needs A-Frame => allow unsafe-eval ONLY there
+    '/apps/panorama/**': {
+      security: {
+        headers: {
+          contentSecurityPolicy: {
+            'img-src': ["'self'", 'data:', 'https:', 'blob:'],
+            'media-src': ["'self'", 'data:', 'https:', 'blob:'],
+            'script-src': ["'self'", "'nonce-{{nonce}}'", "'unsafe-eval'"],
+            'style-src': ["'self'", 'https:', "'unsafe-inline'"]
           }
         }
       }
     },
-    '/admin/**': {
-      ssr: false
+
+    // ✅ Admin is client-only
+    '/admin/**': { ssr: false },
+    '/apps/**': {
+      security: {
+        headers: {
+          contentSecurityPolicy: {
+            // allow local uploads
+            'img-src': ["'self'", 'data:', 'https:', 'blob:'],
+            'media-src': ["'self'", 'data:', 'https:', 'blob:'],
+
+            // keep scripts strict; ONLY add unsafe-eval if you truly need A-Frame
+            'script-src': ["'self'", "'nonce-{{nonce}}'"],
+
+            // if Nuxt UI or inline styles need it
+            'style-src': ["'self'", 'https:', "'unsafe-inline'"]
+          }
+        }
+      }
     }
-
-    
-    
-
-    /**
-     * API routes (example):
-     * You can relax CSP here if needed, or disable CSRF on specific endpoints.
-     * Keep as-is unless you have a specific conflict.
-     */
-    // '/api/**': {
-    //   security: {
-    //     // e.g. for webhook endpoints:
-    //     // csrf: false
-    //   }
-    // }
   }
 })

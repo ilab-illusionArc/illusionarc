@@ -2,10 +2,117 @@
 import { PLACEHOLDER_IMG } from '~/constants/media'
 
 const route = useRoute()
-const { getWorkBySlug } = useContent()
+const supabase = useSupabaseClient()
 
-const item = computed(() => getWorkBySlug(String(route.params.slug)))
+const slug = computed(() => String(route.params.slug || '').trim())
 
+type MediaRow = {
+  id: string
+  kind: 'hero' | 'gallery'
+  path: string
+  alt: string | null
+  sort_order: number
+}
+
+type WorkDbRow = {
+  id: string
+  title: string
+  slug: string
+  category: string
+  short_description: string | null
+  year: number | null
+  role: string | null
+  tools: string[] | null
+  tags: string[] | null
+  highlights: string[] | null
+  outcome: string | null
+  cta: string | null
+  is_active: boolean
+  sort_order: number
+  work_media: MediaRow[] | null
+}
+
+function getPublicUrl(path: string) {
+  if (!path) return ''
+  const { data } = supabase.storage.from('works').getPublicUrl(path)
+  return data?.publicUrl || ''
+}
+
+function safeArr(v: any): string[] {
+  return Array.isArray(v) ? v.map(String).map(s => s.trim()).filter(Boolean) : []
+}
+
+const { data: item, error } = await useAsyncData(
+  () => `work:${slug.value}`,
+  async () => {
+    if (!slug.value) return null
+
+    const { data, error } = await supabase
+      .from('works')
+      .select(
+        `
+        id, title, slug, category,
+        short_description, year, role,
+        tools, tags, highlights,
+        outcome, cta,
+        is_active, sort_order,
+        work_media ( id, kind, path, alt, sort_order, created_at )
+      `
+      )
+      .eq('slug', slug.value)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) return null
+
+    const row = data as unknown as WorkDbRow
+
+    const media = (row.work_media || []).slice()
+    const hero = media.find(m => m.kind === 'hero') || null
+    const gallery = media
+      .filter(m => m.kind === 'gallery')
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+
+    // Shape it to match your existing UI expectation (camelCase fields)
+    return {
+      id: row.id,
+      title: row.title,
+      slug: row.slug,
+      category: row.category,
+      shortDescription: row.short_description || '',
+      year: row.year,
+      role: row.role,
+      tools: safeArr(row.tools),
+      tags: safeArr(row.tags),
+      highlights: safeArr(row.highlights),
+      outcome: row.outcome,
+      cta: row.cta,
+
+      hero: {
+        type: 'image',
+        src: hero?.path ? getPublicUrl(hero.path) : PLACEHOLDER_IMG,
+        alt: hero?.alt || row.title
+      },
+
+      gallery: gallery.map((m, i) => ({
+        type: 'image',
+        src: m.path ? getPublicUrl(m.path) : PLACEHOLDER_IMG,
+        alt: m.alt || `${row.title} image ${i + 1}`
+      }))
+    }
+  },
+  {
+    // SSR-safe: ensures first render has data
+    server: true,
+    lazy: false
+  }
+)
+
+if (error.value) {
+  // optional: keep it as 404 if you want
+  throw createError({ statusCode: 404, statusMessage: 'Work not found' })
+}
 if (!item.value) {
   throw createError({ statusCode: 404, statusMessage: 'Work not found' })
 }
@@ -14,20 +121,6 @@ useHead(() => ({
   title: item.value?.title || 'Work',
   meta: [{ name: 'description', content: item.value?.shortDescription || 'Work detail' }]
 }))
-
-/** Fallback any broken / missing images to PLACEHOLDER_IMG */
-function srcOrPlaceholder(src?: string | null) {
-  const s = String(src || '').trim()
-  return s || PLACEHOLDER_IMG
-}
-
-function onImgError(e: Event) {
-  const el = e.target as HTMLImageElement
-  if (!el) return
-  if (el.dataset.fallbackApplied === '1') return
-  el.dataset.fallbackApplied = '1'
-  el.src = PLACEHOLDER_IMG
-}
 </script>
 
 <template>
@@ -47,10 +140,10 @@ function onImgError(e: Event) {
             </div>
 
             <div class="mt-6 text-sm opacity-70">
-              <div><span class="opacity-60">Year:</span> {{ item!.year }}</div>
-              <div><span class="opacity-60">Role:</span> {{ item!.role || '—' }}</div>
-              <div class="mt-2 flex flex-wrap gap-2">
-                <UBadge v-for="tool in (item!.tools || [])" :key="tool" variant="outline">{{ tool }}</UBadge>
+              <div v-if="item!.year"><span class="opacity-60">Year:</span> {{ item!.year }}</div>
+              <div v-if="item!.role"><span class="opacity-60">Role:</span> {{ item!.role }}</div>
+              <div v-if="(item!.tools || []).length" class="mt-2 flex flex-wrap gap-2">
+                <UBadge v-for="tool in item!.tools" :key="tool" variant="outline">{{ tool }}</UBadge>
               </div>
             </div>
 
@@ -62,35 +155,31 @@ function onImgError(e: Event) {
           </div>
 
           <div class="relative" data-reveal>
-            <!-- If hero image missing or fails → placeholder -->
             <NuxtImg
-              :src="srcOrPlaceholder(item!.hero?.src)"
+              :src="item!.hero?.src || PLACEHOLDER_IMG"
               :alt="item!.hero?.alt || item!.title"
               width="1800"
               height="1200"
               sizes="(max-width: 768px) 100vw, 560px"
               class="h-[320px] md:h-[460px] w-full object-cover rounded-3xl border border-white/10 bg-white/5 shadow-2xl"
               loading="lazy"
-              @error="onImgError"
             />
           </div>
         </div>
       </UContainer>
     </section>
 
-    <!-- Highlights -->
+    <!-- Highlights + Outcome -->
     <UContainer class="py-12">
       <div class="grid gap-6 md:grid-cols-2">
         <UCard class="bg-white/5 border-white/10" data-reveal>
           <template #header>
             <div class="font-semibold text-lg">Highlights</div>
           </template>
-
           <ul v-if="(item!.highlights || []).length" class="space-y-2 opacity-80 list-disc pl-5">
             <li v-for="h in item!.highlights" :key="h">{{ h }}</li>
           </ul>
-
-          <div v-else class="text-sm opacity-70">—</div>
+          <div v-else class="opacity-70 text-sm">—</div>
         </UCard>
 
         <UCard class="bg-white/5 border-white/10" data-reveal>
@@ -104,7 +193,6 @@ function onImgError(e: Event) {
       <!-- Gallery -->
       <div v-if="(item!.gallery || []).length" class="mt-10" data-reveal>
         <h2 class="text-2xl font-semibold">Gallery</h2>
-
         <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div
             v-for="(m, i) in item!.gallery"
@@ -112,20 +200,14 @@ function onImgError(e: Event) {
             class="rounded-2xl border border-white/10 bg-white/5 overflow-hidden"
           >
             <NuxtImg
-              v-if="m.type === 'image'"
-              :src="srcOrPlaceholder(m.src)"
+              :src="m.src || PLACEHOLDER_IMG"
               :alt="m.alt || `${item!.title} image ${i + 1}`"
               width="720"
               height="1080"
               sizes="(max-width: 768px) 100vw, 420px"
               class="w-full aspect-[2/3] object-cover"
               loading="lazy"
-              @error="onImgError"
             />
-
-            <div v-else class="p-4 text-sm opacity-70">
-              Video item (we’ll handle in later step)
-            </div>
           </div>
         </div>
       </div>

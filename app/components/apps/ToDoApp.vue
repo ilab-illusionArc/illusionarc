@@ -25,6 +25,9 @@ const filterTag = ref<'All' | string>('All')
 const hideOverdueDone = ref(false)
 
 const items = ref<TodoItem[]>([])
+
+/** Edit modal state (✅ avoids invalid v-model assignment) */
+const editOpen = ref(false)
 const selected = ref<TodoItem | null>(null)
 
 /* Create form */
@@ -38,7 +41,6 @@ const toast = useToast()
 
 /* ---------------- Utils ---------------- */
 function uid() {
-  // tiny uid for client-only data
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`
 }
 
@@ -53,7 +55,6 @@ function normalizeTags(input: string): string[] {
 
 function isOverdue(i: TodoItem) {
   if (!i.due) return false
-  // Compare by date only (local)
   const today = new Date()
   const t = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
   const d = new Date(i.due + 'T00:00:00').getTime()
@@ -62,8 +63,7 @@ function isOverdue(i: TodoItem) {
 
 function save() {
   try {
-    const payload = JSON.stringify(items.value)
-    localStorage.setItem(STORAGE_KEY, payload)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items.value))
   } catch {
     // ignore
   }
@@ -83,7 +83,7 @@ function load() {
 /* ---------------- Lifecycle ---------------- */
 onMounted(() => {
   load()
-  // If empty, seed a tiny starter list (optional)
+
   if (items.value.length === 0) {
     const now = Date.now()
     items.value = [
@@ -116,14 +116,7 @@ onMounted(() => {
   }
 })
 
-watch(
-  items,
-  () => {
-    // keep order stable & persisted
-    save()
-  },
-  { deep: true }
-)
+watch(items, save, { deep: true })
 
 /* ---------------- Derived ---------------- */
 const allTags = computed(() => {
@@ -161,7 +154,6 @@ const counts = computed(() => {
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
 
-  // sort by order first
   const base = [...items.value].sort((a, b) => a.order - b.order)
 
   return base
@@ -214,12 +206,21 @@ function toggleDone(i: TodoItem) {
 
 function removeTodo(i: TodoItem) {
   items.value = items.value.filter((x) => x.id !== i.id)
-  if (selected.value?.id === i.id) selected.value = null
+  if (selected.value?.id === i.id) {
+    selected.value = null
+    editOpen.value = false
+  }
   toast.add({ title: 'Deleted', description: i.title })
 }
 
 function openEdit(i: TodoItem) {
   selected.value = { ...i }
+  editOpen.value = true
+}
+
+function closeEdit() {
+  editOpen.value = false
+  selected.value = null
 }
 
 function applyEdit() {
@@ -242,8 +243,8 @@ function applyEdit() {
     updatedAt: Date.now()
   }
 
-  selected.value = null
   toast.add({ title: 'Saved', description: title })
+  closeEdit()
 }
 
 function clearAllDone() {
@@ -257,7 +258,6 @@ function reorder(fromIndex: number, toIndex: number) {
   const arr = [...items.value].sort((a, b) => a.order - b.order)
   const [moved] = arr.splice(fromIndex, 1)
   arr.splice(toIndex, 0, moved)
-  // rewrite order
   items.value = arr.map((i, idx) => ({ ...i, order: idx }))
 }
 
@@ -268,8 +268,10 @@ function onNewTitleKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="rounded-3xl border border-black/10 bg-white/60 p-5 shadow-sm backdrop-blur
-              dark:border-white/10 dark:bg-black/20">
+  <div
+    class="rounded-3xl border border-black/10 bg-white/60 p-5 shadow-sm backdrop-blur
+           dark:border-white/10 dark:bg-black/20"
+  >
     <!-- Header -->
     <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
       <div>
@@ -330,20 +332,13 @@ function onNewTitleKeydown(e: KeyboardEvent) {
       </div>
 
       <div class="md:col-span-1">
-        <UButton block @click="createTodo">
-          Add
-        </UButton>
+        <UButton block @click="createTodo">Add</UButton>
       </div>
     </div>
 
     <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
       <UCheckbox v-model="hideOverdueDone" label="Hide done items that are overdue" />
-      <UButton
-        v-if="counts.done"
-        variant="soft"
-        color="red"
-        @click="clearAllDone"
-      >
+      <UButton v-if="counts.done" variant="soft" color="red" @click="clearAllDone">
         Clear done
       </UButton>
     </div>
@@ -366,10 +361,7 @@ function onNewTitleKeydown(e: KeyboardEvent) {
 
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
-                <div
-                  class="truncate font-medium"
-                  :class="i.status === 'Done' ? 'line-through opacity-60' : ''"
-                >
+                <div class="truncate font-medium" :class="i.status === 'Done' ? 'line-through opacity-60' : ''">
                   {{ i.title }}
                 </div>
 
@@ -378,7 +370,6 @@ function onNewTitleKeydown(e: KeyboardEvent) {
                 <UBadge v-else variant="soft">Low</UBadge>
 
                 <UBadge v-if="isOverdue(i)" variant="soft">Overdue</UBadge>
-
                 <UBadge v-if="i.due" variant="soft">Due: {{ i.due }}</UBadge>
               </div>
 
@@ -402,7 +393,6 @@ function onNewTitleKeydown(e: KeyboardEvent) {
           </div>
 
           <div class="flex items-center gap-1.5 opacity-90">
-            <!-- reorder buttons -->
             <UButton
               variant="ghost"
               icon="i-heroicons-chevron-up"
@@ -417,12 +407,7 @@ function onNewTitleKeydown(e: KeyboardEvent) {
             />
 
             <UButton variant="ghost" icon="i-heroicons-pencil-square" @click="openEdit(i)" />
-            <UButton
-              variant="ghost"
-              color="red"
-              icon="i-heroicons-trash"
-              @click="removeTodo(i)"
-            />
+            <UButton variant="ghost" color="red" icon="i-heroicons-trash" @click="removeTodo(i)" />
           </div>
         </div>
       </div>
@@ -436,8 +421,8 @@ function onNewTitleKeydown(e: KeyboardEvent) {
       </div>
     </div>
 
-    <!-- Edit Modal -->
-    <UModal v-model="(selected as any)">
+    <!-- ✅ Edit Modal (fixed) -->
+    <UModal v-model="editOpen">
       <div class="p-5">
         <div class="flex items-start justify-between gap-3">
           <div>
@@ -446,7 +431,7 @@ function onNewTitleKeydown(e: KeyboardEvent) {
               Update title, notes, tags, due date, and status.
             </p>
           </div>
-          <UButton variant="ghost" icon="i-heroicons-x-mark" @click="selected = null" />
+          <UButton variant="ghost" icon="i-heroicons-x-mark" @click="closeEdit" />
         </div>
 
         <div v-if="selected" class="mt-5 grid gap-3">
@@ -482,9 +467,13 @@ function onNewTitleKeydown(e: KeyboardEvent) {
           />
 
           <div class="mt-2 flex justify-end gap-2">
-            <UButton variant="soft" @click="selected = null">Cancel</UButton>
+            <UButton variant="soft" @click="closeEdit">Cancel</UButton>
             <UButton @click="applyEdit">Save</UButton>
           </div>
+        </div>
+
+        <div v-else class="mt-5 text-sm text-black/60 dark:text-white/60">
+          No task selected.
         </div>
       </div>
     </UModal>

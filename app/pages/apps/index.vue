@@ -53,11 +53,10 @@ const apps = ref<AppItem[]>([
   },
   {
     title: 'Unit Converter',
-    slug: 'converter',
+    slug: 'unit-converter',
     description: 'Length, weight, temperature, currency (optional).',
     icon: 'i-heroicons-arrows-right-left',
     category: 'Utilities',
-    comingSoon: true
   },
   {
     title: 'Meeting Timer',

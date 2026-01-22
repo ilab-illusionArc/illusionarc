@@ -14,6 +14,30 @@ const toast = useToast()
 const user = useSupabaseUser() // ✅
 
 const slug = computed(() => String(route.params.gameSlug || ''))
+
+/* ---------------------------------------------------------
+   EXCLUSIVE TOURNAMENT RULE:
+   If a tournament is LIVE for this game, redirect from Arcade
+   to the tournament details page.
+---------------------------------------------------------- */
+type LiveRow = { gameSlug: string; tournamentSlug: string }
+
+async function redirectIfLiveTournament() {
+  try {
+    const res = await $fetch<{ rows?: LiveRow[] }>('/api/tournaments/live-games')
+    const match = (res?.rows || []).find((r) => r.gameSlug === slug.value)
+    if (match?.tournamentSlug) {
+      // Redirect to tournament page (not embed)
+      return await navigateTo(`/tournaments/${match.tournamentSlug}`)
+    }
+  } catch {
+    // If API fails, ignore and keep Arcade working.
+  }
+}
+
+// Run early on server + client navigation
+await redirectIfLiveTournament()
+
 const game = computed(() => GAMES.find((g) => g.slug === slug.value))
 if (!game.value) throw createError({ statusCode: 404, statusMessage: 'Game not found' })
 
@@ -59,9 +83,6 @@ async function onScore(score: number) {
     saving.value = false
   }
 }
-
-
-
 
 // lobby state
 const liked = ref(false)

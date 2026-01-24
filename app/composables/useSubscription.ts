@@ -1,17 +1,16 @@
-export type SubscriptionMe = {
-  user: { id: string } | null
-  active: boolean
-  subscription: any | null
-}
-
+// app/composables/useSubscriptions.ts  (your file name is fine)
 export function useSubscription() {
-  async function me() {
-    return await $fetch<SubscriptionMe>('/api/subscriptions/me')
+  const me = () => {
+    const headers = import.meta.server ? useRequestHeaders(['cookie']) : undefined
+    return $fetch('/api/subscriptions/me', { credentials: 'include', headers })
   }
 
-  async function dummyActivate(planCode: '1d' | '7d' | '30d') {
-    return await $fetch('/api/subscriptions/dummy-activate', {
+  const dummyActivate = (planCode: string) => {
+    const headers = import.meta.server ? useRequestHeaders(['cookie']) : undefined
+    return $fetch('/api/subscriptions/activate', {
       method: 'POST',
+      credentials: 'include',
+      headers,
       body: { planCode }
     })
   }

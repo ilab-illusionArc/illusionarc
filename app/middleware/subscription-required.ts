@@ -1,11 +1,28 @@
+// app/middleware/subscription-required.ts
 export default defineNuxtRouteMiddleware(async (to) => {
   // Only protect tournament embed routes
   if (!String(to.path).startsWith('/tournaments/embed/')) return
 
-  const user = useSupabaseUser()
-  if (!user.value) return navigateTo('/login')
+  // ✅ Always use API state (server knows auth from cookie)
+  const headers = import.meta.server ? useRequestHeaders(['cookie']) : undefined
 
-  // use server endpoint so it stays consistent
-  const state = await $fetch<{ active: boolean }>('/api/subscriptions/me')
-  if (!state.active) return navigateTo('/subscribe')
+  let state: { user: { id: string } | null; active: boolean } | null = null
+  try {
+    state = await $fetch('/api/subscriptions/me', {
+      credentials: 'include',
+      headers
+    })
+  } catch {
+    state = { user: null, active: false }
+  }
+
+  // Not logged in
+  if (!state?.user) {
+    return navigateTo(`/login?redirect=${encodeURIComponent(to.fullPath)}`)
+  }
+
+  // Not subscribed
+  if (!state.active) {
+    return navigateTo(`/subscribe?redirect=${encodeURIComponent(to.fullPath)}`)
+  }
 })

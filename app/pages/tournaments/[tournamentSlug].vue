@@ -222,6 +222,11 @@ watch(
 if (effectiveStatus.value === 'ended') {
   await loadWinners()
 }
+function playHard(slug: string) {
+  if (!import.meta.client) return
+  const url = `/tournaments/embed/${encodeURIComponent(slug)}?boot=${Date.now()}`
+  window.location.assign(url) // ✅ full refresh navigation every time
+}
 </script>
 
 <template>
@@ -291,7 +296,7 @@ if (effectiveStatus.value === 'ended') {
         <div class="flex flex-wrap gap-2">
           <UButton
             v-if="canPlay"
-            :to="`/tournaments/embed/${t.slug}`"
+            @click="playHard(t.slug)"
             class="!rounded-full"
           >
             Play Now

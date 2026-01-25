@@ -239,6 +239,11 @@ function heroBg(s: string) {
   if (s === 'scheduled') return 'from-violet-500/20 via-white/5 to-transparent'
   return 'from-white/10 via-white/5 to-transparent'
 }
+function playHard(slug: string) {
+  if (!import.meta.client) return
+  const url = `/tournaments/embed/${encodeURIComponent(slug)}?boot=${Date.now()}`
+  window.location.assign(url) // ✅ full refresh navigation every time
+}
 </script>
 
 <template>
@@ -451,7 +456,7 @@ function heroBg(s: string) {
                 Details
               </UButton>
 
-              <UButton v-if="canPlay" :to="`/tournaments/embed/${t.slug}`" class="!rounded-full">
+              <UButton v-if="canPlay" @click="playHard(t.slug)" class="!rounded-full">
                 Play Now
               </UButton>
 

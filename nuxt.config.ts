@@ -245,6 +245,19 @@ export default defineNuxtConfig({
         }
       }
     },
+    '/tournaments/**': {
+      security: {
+        headers: {
+          xFrameOptions: false,
+          contentSecurityPolicy: {
+            'frame-ancestors': ["'self'", 'https://illusionarc.com', 'https://www.illusionarc.com']
+          },
+          crossOriginEmbedderPolicy: false,
+          crossOriginOpenerPolicy: false
+        }
+      }
+    },
+
 
     // ✅ Games: relaxed asset loading + allow framing
     '/games/**': {

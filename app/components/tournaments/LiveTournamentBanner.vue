@@ -153,6 +153,11 @@ watch(
     await pickTournament()
   }
 )
+function hardPlay(slug: string) {
+  if (!import.meta.client) return
+  const url = `/tournaments/embed/${encodeURIComponent(slug)}?boot=${Date.now()}`
+  window.location.assign(url) // ✅ real refresh navigation
+}
 </script>
 
 <template>
@@ -197,7 +202,7 @@ watch(
         </UButton>
 
         <UButton
-          :to="`/tournaments/embed/${t.slug}`"
+          @click="hardPlay(t.slug)"
           class="!rounded-full w-full sm:w-auto"
         >
           Play

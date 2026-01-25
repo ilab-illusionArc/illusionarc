@@ -78,6 +78,29 @@ function safeName(name: any) {
   return s || 'Player'
 }
 
+/* ---------------- Prize helpers (new system) ---------------- */
+function getPrize1(x: AnyTournament) {
+  return String(x?.prize_1 ?? '').trim()
+}
+function getPrize2(x: AnyTournament) {
+  return String(x?.prize_2 ?? '').trim()
+}
+function getPrize3(x: AnyTournament) {
+  return String(x?.prize_3 ?? '').trim()
+}
+const prizeList = computed(() => {
+  if (!t.value) return []
+  const p1 = getPrize1(t.value)
+  const p2 = getPrize2(t.value)
+  const p3 = getPrize3(t.value)
+  const out = [
+    p1 ? { rank: 1 as const, label: '1st Prize', value: p1 } : null,
+    p2 ? { rank: 2 as const, label: '2nd Prize', value: p2 } : null,
+    p3 ? { rank: 3 as const, label: '3rd Prize', value: p3 } : null
+  ].filter(Boolean) as { rank: 1 | 2 | 3; label: string; value: string }[]
+  return out
+})
+
 /**
  * ✅ Single source of truth for status:
  * - If canceled in DB -> canceled
@@ -102,16 +125,12 @@ const effectiveStatus = computed<'scheduled' | 'live' | 'ended' | 'canceled'>(()
   return 'scheduled'
 })
 
-const startsInMs = computed(() =>
-  t.value ? new Date(getStartsAt(t.value)).getTime() - now.value : 0
-)
-const endsInMs = computed(() =>
-  t.value ? new Date(getEndsAt(t.value)).getTime() - now.value : 0
-)
+const startsInMs = computed(() => (t.value ? new Date(getStartsAt(t.value)).getTime() - now.value : 0))
+const endsInMs = computed(() => (t.value ? new Date(getEndsAt(t.value)).getTime() - now.value : 0))
 
 const game = computed(() => {
   if (!t.value) return null
-  return GAMES.find(g => g.slug === getGameSlug(t.value)) || null
+  return GAMES.find((g) => g.slug === getGameSlug(t.value)) || null
 })
 
 const canPlay = computed(() => {
@@ -150,6 +169,7 @@ type WinnerRow = {
   player_name: string
   score: number
   user_id?: string | null
+  prize?: string | null
   prize_bdt?: number | null
 }
 
@@ -160,7 +180,7 @@ const winnersError = ref<string | null>(null)
 const hasWinners = computed(() => winners.value.length > 0)
 
 function winnerByRank(rank: 1 | 2 | 3) {
-  return winners.value.find(w => Number(w.rank) === rank) || null
+  return winners.value.find((w) => Number(w.rank) === rank) || null
 }
 function medal(rank: 1 | 2 | 3) {
   return rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'
@@ -186,10 +206,7 @@ async function loadWinners() {
   }
 }
 
-/* ---------------- Boundary refresh ----------------
-When time crosses start/end, refetch tournament + refresh leaderboard + winners.
-This fixes stale DB status issues without needing manual refresh.
---------------------------------------------------- */
+/* ---------------- Boundary refresh ---------------- */
 const lastBoundaryTick = ref<number>(0)
 
 watch(
@@ -205,11 +222,11 @@ watch(
     const nearEnd = Number.isFinite(e) ? Math.abs(now.value - e) < 1500 : false
     if (!nearStart && !nearEnd) return
 
-    // prevent double fire in the 1.5s window
     if (now.value - lastBoundaryTick.value < 2000) return
     lastBoundaryTick.value = now.value
 
     await loadTournament()
+    await refreshSub()
     await loadLeaderboard()
 
     if (effectiveStatus.value === 'ended') {
@@ -222,10 +239,12 @@ watch(
 if (effectiveStatus.value === 'ended') {
   await loadWinners()
 }
-function playHard(slug: string) {
+
+/* ---------------- Play (hard reload) ---------------- */
+function playHard(tournamentSlug: string) {
   if (!import.meta.client) return
-  const url = `/tournaments/embed/${encodeURIComponent(slug)}?boot=${Date.now()}`
-  window.location.assign(url) // ✅ full refresh navigation every time
+  const url = `/tournaments/embed/${encodeURIComponent(tournamentSlug)}?boot=${Date.now()}`
+  window.location.assign(url)
 }
 </script>
 
@@ -280,10 +299,7 @@ function playHard(slug: string) {
               CANCELED
             </span>
 
-            <span
-              v-else
-              class="px-2 py-1 rounded-full bg-white/10 border border-white/10 text-white/70"
-            >
+            <span v-else class="px-2 py-1 rounded-full bg-white/10 border border-white/10 text-white/70">
               ENDED
             </span>
 
@@ -294,34 +310,36 @@ function playHard(slug: string) {
         </div>
 
         <div class="flex flex-wrap gap-2">
-          <UButton
-            v-if="canPlay"
-            @click="playHard(t.slug)"
-            class="!rounded-full"
-          >
+          <UButton v-if="canPlay" @click="playHard(t.slug)" class="!rounded-full">
             Play Now
           </UButton>
 
-          <UButton
-            v-else-if="effectiveStatus === 'live' && user && sub && !sub.active"
-            to="/subscribe"
-            class="!rounded-full"
-          >
+          <UButton v-else-if="effectiveStatus === 'live' && user && sub && !sub.active" to="/subscribe" class="!rounded-full">
             Subscribe to Play
           </UButton>
 
-          <UButton
-            v-else
-            :to="`/tournaments/embed/${t.slug}`"
-            variant="soft"
-            class="!rounded-full"
-          >
+          <UButton v-else :to="`/tournaments/embed/${t.slug}`" variant="soft" class="!rounded-full">
             Open
           </UButton>
 
           <UButton :to="`/arcade/${getGameSlug(t)}`" variant="soft" class="!rounded-full">
             Arcade (if available)
           </UButton>
+        </div>
+      </div>
+
+      <!-- ✅ Prizes (new system) -->
+      <div v-if="prizeList.length" class="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+        <div class="text-lg font-semibold">Prizes</div>
+        <div class="mt-3 grid gap-3 md:grid-cols-3">
+          <div
+            v-for="p in prizeList"
+            :key="p.rank"
+            class="rounded-xl border border-white/10 bg-white/5 p-4"
+          >
+            <div class="text-xs opacity-70">{{ p.label }}</div>
+            <div class="mt-1 font-semibold">{{ p.value }}</div>
+          </div>
         </div>
       </div>
 
@@ -366,6 +384,9 @@ function playHard(slug: string) {
                   <UIcon name="i-heroicons-bolt" class="w-4 h-4 opacity-80" />
                   <span class="font-semibold">{{ winnerByRank(2)?.score ?? '—' }}</span>
                 </div>
+                <div v-if="winnerByRank(2)?.prize" class="mt-3 text-sm opacity-85">
+                  <b>Prize:</b> {{ winnerByRank(2)?.prize }}
+                </div>
                 <div class="mt-4 h-12 rounded-xl bg-white/5 border border-white/10"></div>
               </div>
             </div>
@@ -382,6 +403,9 @@ function playHard(slug: string) {
                   <UIcon name="i-heroicons-bolt" class="w-4 h-4 opacity-90" />
                   <span class="font-semibold">{{ winnerByRank(1)?.score ?? '—' }}</span>
                 </div>
+                <div v-if="winnerByRank(1)?.prize" class="mt-3 text-sm text-amber-100/90">
+                  <b>Prize:</b> {{ winnerByRank(1)?.prize }}
+                </div>
                 <div class="mt-5 h-16 rounded-xl bg-amber-500/10 border border-amber-400/20"></div>
               </div>
             </div>
@@ -394,6 +418,9 @@ function playHard(slug: string) {
                 <div class="mt-2 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 text-sm">
                   <UIcon name="i-heroicons-bolt" class="w-4 h-4 opacity-80" />
                   <span class="font-semibold">{{ winnerByRank(3)?.score ?? '—' }}</span>
+                </div>
+                <div v-if="winnerByRank(3)?.prize" class="mt-3 text-sm opacity-85">
+                  <b>Prize:</b> {{ winnerByRank(3)?.prize }}
                 </div>
                 <div class="mt-4 h-10 rounded-xl bg-white/5 border border-white/10"></div>
               </div>
@@ -412,6 +439,7 @@ function playHard(slug: string) {
                   <div>
                     <div class="text-xs opacity-70">Rank #{{ r.rank }}</div>
                     <div class="font-semibold">{{ safeName(r.player_name) }}</div>
+                    <div v-if="r.prize" class="mt-1 text-xs opacity-80">Prize: <b>{{ r.prize }}</b></div>
                   </div>
                 </div>
                 <div class="text-right">
@@ -420,10 +448,6 @@ function playHard(slug: string) {
                 </div>
               </div>
             </div>
-          </div>
-
-          <div class="mt-5 text-xs opacity-60">
-            Auto-finalize runs on this page after the end time. Refresh if needed.
           </div>
         </div>
       </div>
@@ -449,7 +473,8 @@ function playHard(slug: string) {
             </div>
           </div>
 
-          <div v-if="t.prize" class="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+          <!-- Legacy prize fallback (only if new prizes absent) -->
+          <div v-if="!prizeList.length && t.prize" class="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
             <div class="text-xs opacity-70">Prize</div>
             <div class="mt-1 text-sm font-medium">{{ t.prize }}</div>
           </div>

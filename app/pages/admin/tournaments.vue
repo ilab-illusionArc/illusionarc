@@ -22,7 +22,13 @@ type TournamentRow = {
   starts_at: string
   ends_at: string
   status: 'scheduled' | 'live' | 'ended' | 'canceled' | string
+
+  // legacy + new prizes
   prize: string | null
+  prize_1?: string | null
+  prize_2?: string | null
+  prize_3?: string | null
+
   finalized: boolean
   thumbnail_url?: string | null
   thumbnail_path?: string | null
@@ -33,11 +39,18 @@ type TournamentRow = {
 type WinnerRow = {
   id: string
   tournament_slug: string
+  tournament_id?: string
   rank: number
   user_id: string | null
   player_name: string | null
   score: number
+
+  // NEW
+  prize?: string | null
+
+  // keep if you still have it
   prize_bdt?: number | null
+
   created_at?: string
 }
 
@@ -64,11 +77,17 @@ const form = reactive({
   starts_local: '' as string,
   ends_local: '' as string,
   status: 'scheduled' as string,
+
+  // legacy + new prizes
   prize: '' as string,
+  prize_1: '' as string,
+  prize_2: '' as string,
+  prize_3: '' as string,
+
   finalized: false as boolean,
 
-  thumbnail_url: '' as string,  // persisted
-  thumbnail_path: '' as string  // persisted
+  thumbnail_url: '' as string,
+  thumbnail_path: '' as string
 })
 
 /* ---------------- Time helpers ---------------- */
@@ -137,22 +156,16 @@ function slugify(input: string) {
 watch(
   () => form.title,
   (v) => {
-    // Only auto-generate when creating NEW tournament (do not mutate existing slugs)
     if (!form.id) form.slug = slugify(v || '')
   }
 )
 
-/* ---------------- Thumbnail (TEMP until create/save) ----------------
-User wants:
-- Pick thumbnail first (temporary)
-- Create tournament -> upload thumbnail + persist in DB
-So we store the File in memory + show preview. We do NOT upload before tournament exists.
------------------------------------------------- */
+/* ---------------- Thumbnail (temp pick) ---------------- */
 const BUCKET = 'tournament-thumbnails'
 const thumbUploading = ref(false)
 
-const thumbFile = ref<File | null>(null)         // temporary file in memory
-const thumbPreview = ref<string>('')             // temporary preview URL
+const thumbFile = ref<File | null>(null)
+const thumbPreview = ref<string>('')
 
 function setThumbFile(file: File | null) {
   if (thumbPreview.value) URL.revokeObjectURL(thumbPreview.value)
@@ -168,7 +181,6 @@ function onThumbPick(e: Event) {
 }
 
 const effectiveThumbUrl = computed(() => {
-  // Show temp preview first, otherwise persisted thumbnail_url
   if (thumbPreview.value) return thumbPreview.value
   if (form.thumbnail_url) return form.thumbnail_url
   return ''
@@ -179,9 +191,7 @@ function clearThumbSelection() {
 }
 
 async function removeSavedThumbnail() {
-  // Removes persisted thumbnail (storage + db) — available even if no new file selected
   if (!form.id) {
-    // nothing persisted yet
     form.thumbnail_url = ''
     form.thumbnail_path = ''
     setThumbFile(null)
@@ -192,25 +202,18 @@ async function removeSavedThumbnail() {
     if (form.thumbnail_path) {
       await supabase.storage.from(BUCKET).remove([form.thumbnail_path])
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
 
   form.thumbnail_url = ''
   form.thumbnail_path = ''
   setThumbFile(null)
 
-  // persist change
   await apiUpsert({ saveOnlyMeta: true, skipThumbUpload: true })
   toast.add({ title: 'Thumbnail removed', color: 'success' })
 }
 
-/**
- * Uploads the currently selected temp thumb file (if any),
- * and persists thumbnail_url/path to DB.
- */
 async function uploadThumbAndPersist(tournamentId: string) {
-  if (!thumbFile.value) return // nothing new selected
+  if (!thumbFile.value) return
 
   thumbUploading.value = true
   try {
@@ -226,13 +229,11 @@ async function uploadThumbAndPersist(tournamentId: string) {
     const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
     const publicUrl = data?.publicUrl || ''
 
-    // update form fields + persist them via API
     form.thumbnail_path = path
     form.thumbnail_url = publicUrl
 
     await apiUpsert({ saveOnlyMeta: true, skipThumbUpload: true })
 
-    // clear temp file after successful upload
     setThumbFile(null)
     toast.add({ title: 'Thumbnail saved', color: 'success' })
   } finally {
@@ -267,12 +268,6 @@ type UpsertOpts = {
   skipThumbUpload?: boolean
 }
 
-/**
- * Main save.
- * Behavior:
- * - Creates/updates tournament first (so we get a stable id)
- * - Then uploads temp thumbnail (if selected) and persists thumbnail_url/path
- */
 async function apiUpsert(opts: UpsertOpts = {}) {
   const saveOnlyMeta = Boolean(opts.saveOnlyMeta)
   const skipThumbUpload = Boolean(opts.skipThumbUpload)
@@ -306,14 +301,19 @@ async function apiUpsert(opts: UpsertOpts = {}) {
         slug: form.slug.trim(),
         title: form.title.trim(),
         description: form.description.trim() || null,
+
+        // legacy + new prizes
         prize: form.prize.trim() || null,
+        prize_1: form.prize_1.trim() || null,
+        prize_2: form.prize_2.trim() || null,
+        prize_3: form.prize_3.trim() || null,
+
         game_slug: form.game_slug,
         starts_at: startsIso.value,
         ends_at: endsIso.value,
         status: form.status,
         finalized: Boolean(form.finalized),
 
-        // persisted thumbnail fields (may be blank on first create)
         thumbnail_url: form.thumbnail_url || null,
         thumbnail_path: form.thumbnail_path || null
       }
@@ -322,17 +322,20 @@ async function apiUpsert(opts: UpsertOpts = {}) {
     const t = res?.tournament
     if (!t?.id) throw new Error('Upsert did not return tournament id')
 
-    // keep form synced
     form.id = t.id
     form.slug = t.slug
     form.thumbnail_url = t.thumbnail_url || form.thumbnail_url
     form.thumbnail_path = t.thumbnail_path || form.thumbnail_path
 
+    form.prize = t.prize || form.prize
+    form.prize_1 = (t as any).prize_1 || form.prize_1
+    form.prize_2 = (t as any).prize_2 || form.prize_2
+    form.prize_3 = (t as any).prize_3 || form.prize_3
+
     if (!saveOnlyMeta) {
       toast.add({ title: isEditing.value ? 'Tournament saved' : 'Tournament created', color: 'success' })
     }
 
-    // Upload thumbnail AFTER create/save (per your requirement)
     if (!skipThumbUpload) {
       try {
         await uploadThumbAndPersist(t.id)
@@ -388,41 +391,17 @@ const winners = ref<WinnerRow[]>([])
 const winnersLoading = ref(false)
 const winnersErr = ref<string | null>(null)
 
-const prizePool = ref<number>(0)
-
-function applySplit(mode: 'equal' | '50_30_20') {
-  if (!winners.value.length) return
-  const pool = Number(prizePool.value || 0)
-  if (!Number.isFinite(pool) || pool <= 0) {
-    toast.add({ title: 'Enter prize pool first', color: 'error' })
-    return
-  }
-
-  const w1 = winners.value.find(w => w.rank === 1)
-  const w2 = winners.value.find(w => w.rank === 2)
-  const w3 = winners.value.find(w => w.rank === 3)
-
-  if (mode === 'equal') {
-    const each = Math.floor(pool / winners.value.length)
-    winners.value.forEach(w => (w.prize_bdt = each))
-  } else {
-    if (w1) w1.prize_bdt = Math.floor(pool * 0.5)
-    if (w2) w2.prize_bdt = Math.floor(pool * 0.3)
-    if (w3) w3.prize_bdt = Math.floor(pool * 0.2)
-  }
-}
-
 async function loadWinners() {
   winnersErr.value = null
   winners.value = []
-  if (!form.slug) return
+  if (!form.id && !form.slug) return
 
   winnersLoading.value = true
   try {
-    // IMPORTANT: your admin endpoint should support tournamentSlug
+    // FIX: call API using tournamentId (and API also accepts slug as fallback)
     const res = await $fetch<{ rows: WinnerRow[] }>('/api/admin/tournaments/winners', {
       credentials: 'include',
-      query: { tournamentSlug: form.slug }
+      query: { tournamentId: form.id || undefined, tournamentSlug: form.slug || undefined }
     })
     winners.value = (res?.rows || []) as WinnerRow[]
   } catch (e: any) {
@@ -463,7 +442,12 @@ async function updateWinner(row: WinnerRow) {
         id: row.id,
         player_name: row.player_name,
         score: row.score,
-        prize_bdt: row.prize_bdt ?? 0
+
+        // NEW
+        prize: row.prize ?? null,
+
+        // keep if you still support it
+        prize_bdt: row.prize_bdt ?? null
       }
     })
     toast.add({ title: 'Winner updated', color: 'success' })
@@ -473,11 +457,11 @@ async function updateWinner(row: WinnerRow) {
   }
 }
 
-async function saveAllPrizes() {
+async function saveAllWinners() {
   for (const w of winners.value) {
     await updateWinner(w)
   }
-  toast.add({ title: 'All prizes saved', color: 'success' })
+  toast.add({ title: 'All winners saved', color: 'success' })
 }
 
 /* ---------------- Selection & reset ---------------- */
@@ -488,15 +472,19 @@ function resetForm() {
   form.title = ''
   form.slug = ''
   form.description = ''
-  form.prize = ''
-  form.game_slug = GAMES[0]?.slug || ''
   form.status = 'scheduled'
   form.finalized = false
+
+  form.prize = ''
+  form.prize_1 = ''
+  form.prize_2 = ''
+  form.prize_3 = ''
 
   form.thumbnail_url = ''
   form.thumbnail_path = ''
 
-  // default: next hour -> +2h
+  form.game_slug = GAMES[0]?.slug || ''
+
   const d = new Date()
   d.setMinutes(0, 0, 0)
   d.setHours(d.getHours() + 1)
@@ -506,7 +494,6 @@ function resetForm() {
 
   winners.value = []
   winnersErr.value = null
-  prizePool.value = 0
 
   setThumbFile(null)
 }
@@ -520,10 +507,14 @@ function selectTournament(id: string) {
   form.slug = t.slug
   form.title = t.title
   form.description = t.description || ''
-  form.prize = t.prize || ''
   form.game_slug = t.game_slug
   form.status = t.status || 'scheduled'
   form.finalized = Boolean(t.finalized)
+
+  form.prize = t.prize || ''
+  form.prize_1 = (t as any).prize_1 || ''
+  form.prize_2 = (t as any).prize_2 || ''
+  form.prize_3 = (t as any).prize_3 || ''
 
   form.starts_local = toLocalInputValue(t.starts_at)
   form.ends_local = toLocalInputValue(t.ends_at)
@@ -711,36 +702,46 @@ onMounted(async () => {
               <textarea v-model="form.description" rows="3" class="rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-black/20 px-3 py-2 outline-none" />
             </div>
 
+            <!-- NEW: 3 prizes -->
+            <div class="grid gap-3 md:grid-cols-3">
+              <div class="grid gap-2">
+                <label class="text-xs opacity-70">Prize #1</label>
+                <input v-model="form.prize_1" class="rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-black/20 px-3 py-2 outline-none" placeholder="e.g. ৳500 / Headphone / Voucher" />
+              </div>
+              <div class="grid gap-2">
+                <label class="text-xs opacity-70">Prize #2</label>
+                <input v-model="form.prize_2" class="rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-black/20 px-3 py-2 outline-none" placeholder="e.g. ৳300 / Gift card" />
+              </div>
+              <div class="grid gap-2">
+                <label class="text-xs opacity-70">Prize #3</label>
+                <input v-model="form.prize_3" class="rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-black/20 px-3 py-2 outline-none" placeholder="e.g. ৳200 / Skin" />
+              </div>
+            </div>
+
+            <!-- legacy (optional) -->
             <div class="grid gap-2">
-              <label class="text-xs opacity-70">Prize (text)</label>
-              <input v-model="form.prize" class="rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-black/20 px-3 py-2 outline-none" placeholder="Example: Top 3 get prizes + badge" />
+              <label class="text-xs opacity-70">Prize (legacy summary, optional)</label>
+              <input v-model="form.prize" class="rounded-2xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-black/20 px-3 py-2 outline-none" placeholder="Optional summary text" />
             </div>
           </div>
         </div>
 
-        <!-- Thumbnail (ALWAYS enabled) -->
+        <!-- Thumbnail -->
         <div class="rounded-3xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 backdrop-blur p-4">
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="font-semibold">Thumbnail</div>
               <div class="text-xs opacity-70">
-                Pick an image now (temporary preview). It will upload & save permanently when you click <b>Create / Save</b>.
+                Pick now (temporary preview). Upload & save happens when you click <b>Create / Save</b>.
               </div>
             </div>
-            <div class="text-xs opacity-70" v-if="thumbUploading">
-              Uploading…
-            </div>
+            <div class="text-xs opacity-70" v-if="thumbUploading">Uploading…</div>
           </div>
 
           <div class="mt-4 grid gap-4 md:grid-cols-[160px_1fr] items-start">
             <div class="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
               <div class="aspect-[16/10] bg-black/20 grid place-items-center">
-                <img
-                  v-if="effectiveThumbUrl"
-                  :src="effectiveThumbUrl"
-                  alt="Thumbnail preview"
-                  class="h-full w-full object-cover"
-                />
+                <img v-if="effectiveThumbUrl" :src="effectiveThumbUrl" class="h-full w-full object-cover" />
                 <div v-else class="text-xs opacity-60">No image</div>
               </div>
             </div>
@@ -753,19 +754,9 @@ onMounted(async () => {
                   Clear Selection
                 </UButton>
 
-                <UButton
-                  color="red"
-                  variant="soft"
-                  class="!rounded-full"
-                  :disabled="!form.thumbnail_url"
-                  @click="removeSavedThumbnail"
-                >
+                <UButton color="red" variant="soft" class="!rounded-full" :disabled="!form.thumbnail_url" @click="removeSavedThumbnail">
                   Remove Saved Thumbnail
                 </UButton>
-              </div>
-
-              <div class="text-xs opacity-60">
-                Best: wide image (16:10 / 16:9). File stays in memory until you Save.
               </div>
             </div>
           </div>
@@ -822,11 +813,7 @@ onMounted(async () => {
           </div>
 
           <div class="mt-4 flex flex-wrap gap-2">
-            <UButton
-              class="!rounded-full"
-              :loading="loading || thumbUploading"
-              @click="apiUpsert()"
-            >
+            <UButton class="!rounded-full" :loading="loading || thumbUploading" @click="apiUpsert()">
               {{ isEditing ? 'Save Changes' : 'Create Tournament' }}
             </UButton>
 
@@ -838,10 +825,6 @@ onMounted(async () => {
               Delete
             </UButton>
           </div>
-
-          <div v-if="thumbFile" class="mt-3 text-xs opacity-70">
-            Thumbnail selected and will be uploaded on Save/Create.
-          </div>
         </div>
 
         <!-- Winners -->
@@ -849,25 +832,23 @@ onMounted(async () => {
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="font-semibold">Winners</div>
-              <div class="text-xs opacity-70">
-                Top 3 snapshot after end. Use Finalize if cron hasn’t run yet.
-              </div>
+              <div class="text-xs opacity-70">Finalize assigns Prize #1/#2/#3 into winners.</div>
             </div>
 
             <div class="flex items-center gap-2">
-              <UButton variant="soft" size="xs" class="!rounded-full" :loading="winnersLoading" :disabled="!form.slug" @click="loadWinners()">
+              <UButton variant="soft" size="xs" class="!rounded-full" :loading="winnersLoading" :disabled="!form.slug && !form.id" @click="loadWinners()">
                 Refresh
               </UButton>
               <UButton size="xs" class="!rounded-full" :disabled="!form.id" :loading="winnersLoading" @click="finalize(false)">
                 Finalize
               </UButton>
               <UButton variant="soft" size="xs" class="!rounded-full" :disabled="!form.id" :loading="winnersLoading" @click="finalize(true)">
-                Re-Finalize (force)
+                Re-Finalize
               </UButton>
             </div>
           </div>
 
-          <div v-if="!form.slug" class="mt-4 text-sm opacity-70">
+          <div v-if="!form.id" class="mt-4 text-sm opacity-70">
             Create or select a tournament to manage winners.
           </div>
 
@@ -876,76 +857,37 @@ onMounted(async () => {
               {{ winnersErr }}
             </div>
 
-            <div class="mt-4 flex flex-wrap items-center gap-2">
-              <div class="text-xs opacity-70">Prize pool (BDT)</div>
-              <input
-                v-model.number="prizePool"
-                type="number"
-                min="0"
-                class="w-40 rounded-xl border border-white/10 bg-black/20 px-2 py-1 text-sm outline-none"
-                placeholder="e.g. 1000"
-              />
-              <UButton size="xs" variant="soft" class="!rounded-full" :disabled="!winners.length" @click="applySplit('50_30_20')">
-                Split 50/30/20
-              </UButton>
-              <UButton size="xs" variant="soft" class="!rounded-full" :disabled="!winners.length" @click="applySplit('equal')">
-                Split Equal
-              </UButton>
-              <UButton size="xs" class="!rounded-full" :disabled="!winners.length" @click="saveAllPrizes">
-                Save All Prizes
-              </UButton>
-            </div>
-
             <div v-if="winnersLoading" class="mt-4 text-sm opacity-70">Loading…</div>
 
             <div v-else-if="winners.length === 0" class="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm opacity-80">
-              No winners yet. If the tournament ended, click Finalize (or wait for cron then refresh).
+              No winners yet. If ended, click Finalize.
             </div>
 
             <div v-else class="mt-4 space-y-2">
-              <div
-                v-for="w in winners"
-                :key="w.id"
-                class="rounded-2xl border border-white/10 bg-white/5 p-3"
-              >
+              <div v-for="w in winners" :key="w.id" class="rounded-2xl border border-white/10 bg-white/5 p-3">
                 <div class="flex flex-wrap items-center justify-between gap-3">
-                  <div class="flex items-center gap-3">
-                    <div
-                      class="h-10 w-10 rounded-2xl grid place-items-center border border-white/10"
-                      :class="w.rank === 1 ? 'bg-amber-500/15' : w.rank === 2 ? 'bg-slate-500/15' : 'bg-orange-500/15'"
-                    >
-                      <UIcon :name="w.rank === 1 ? 'i-heroicons-trophy' : 'i-heroicons-star'" class="h-5 w-5 opacity-80" />
-                    </div>
-
-                    <div>
-                      <div class="font-semibold">
-                        #{{ w.rank }} — {{ w.player_name || 'Unknown' }}
-                      </div>
-                      <div class="text-xs opacity-70">
-                        Score: <b class="opacity-100">{{ w.score }}</b>
-                        <span class="opacity-40">•</span>
-                        User: <span class="font-mono">{{ w.user_id?.slice?.(0, 8) || '—' }}…</span>
-                      </div>
+                  <div>
+                    <div class="font-semibold">#{{ w.rank }} — {{ w.player_name || 'Unknown' }}</div>
+                    <div class="text-xs opacity-70">
+                      Score: <b class="opacity-100">{{ w.score }}</b>
+                      <span class="opacity-40">•</span>
+                      Prize: <b class="opacity-100">{{ w.prize || '—' }}</b>
                     </div>
                   </div>
 
                   <div class="flex items-center gap-2">
-                    <div class="text-xs opacity-70">Prize (BDT)</div>
                     <input
-                      v-model.number="w.prize_bdt"
-                      type="number"
-                      min="0"
-                      class="w-28 rounded-xl border border-white/10 bg-black/20 px-2 py-1 text-sm outline-none"
+                      v-model="w.prize"
+                      class="w-56 rounded-xl border border-white/10 bg-black/20 px-2 py-1 text-sm outline-none"
+                      placeholder="Prize text"
                     />
-                    <UButton size="xs" class="!rounded-full" @click="updateWinner(w)">
-                      Save
-                    </UButton>
+                    <UButton size="xs" class="!rounded-full" @click="updateWinner(w)">Save</UButton>
                   </div>
                 </div>
               </div>
 
-              <div class="mt-2 text-xs opacity-70">
-                Tip: Make sure your <span class="font-mono">tournament_winners</span> table has <span class="font-mono">prize_bdt</span>.
+              <div class="mt-2 flex justify-end">
+                <UButton size="xs" class="!rounded-full" @click="saveAllWinners">Save All</UButton>
               </div>
             </div>
           </div>

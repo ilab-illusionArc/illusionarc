@@ -18,8 +18,6 @@ async function requireAdmin(event: any) {
   if (String((prof as any)?.role || '').toLowerCase() !== 'admin') {
     throw createError({ statusCode: 403, statusMessage: 'Admin only' })
   }
-
-  return { userId: user.id }
 }
 
 function slugify(input: string) {
@@ -31,6 +29,11 @@ function slugify(input: string) {
     .replace(/^-+|-+$/g, '')
 }
 
+function cleanText(v: any) {
+  const s = String(v || '').trim()
+  return s || null
+}
+
 export default defineEventHandler(async (event) => {
   await requireAdmin(event)
   const adminDb = await serverSupabaseServiceRole(event)
@@ -40,8 +43,8 @@ export default defineEventHandler(async (event) => {
   const id = String(body?.id || '').trim() || null
   const title = String(body?.title || '').trim()
   const slug = String(body?.slug || slugify(title)).trim()
-  const description = String(body?.description || '').trim() || null
-  const prize = String(body?.prize || '').trim() || null
+
+  const description = cleanText(body?.description)
 
   const game_slug = String(body?.game_slug || '').trim()
   const starts_at = String(body?.starts_at || '').trim()
@@ -50,9 +53,17 @@ export default defineEventHandler(async (event) => {
   const status = String(body?.status || 'scheduled').trim()
   const finalized = Boolean(body?.finalized ?? false)
 
-  // ✅ NEW: thumbnail fields
-  const thumbnail_url = String(body?.thumbnail_url || '').trim() || null
-  const thumbnail_path = String(body?.thumbnail_path || '').trim() || null
+  // ✅ NEW: 3 prizes (text)
+  const prize_1 = cleanText(body?.prize_1)
+  const prize_2 = cleanText(body?.prize_2)
+  const prize_3 = cleanText(body?.prize_3)
+
+  // ✅ keep old prize for backward compatibility if you still show it somewhere
+  const prize = cleanText(body?.prize)
+
+  // ✅ thumbnail fields
+  const thumbnail_url = cleanText(body?.thumbnail_url)
+  const thumbnail_path = cleanText(body?.thumbnail_path)
 
   if (!title) throw createError({ statusCode: 400, statusMessage: 'Missing title' })
   if (!slug) throw createError({ statusCode: 400, statusMessage: 'Missing slug' })
@@ -79,25 +90,24 @@ export default defineEventHandler(async (event) => {
     slug,
     title,
     description,
-    prize,
     game_slug,
     starts_at,
     ends_at,
     status,
     finalized,
 
-    // ✅ NEW persisted fields
+    // old + new prize
+    prize,
+    prize_1,
+    prize_2,
+    prize_3,
+
     thumbnail_url,
     thumbnail_path
   }
 
   if (!id) {
-    const { data, error } = await adminDb
-      .from('tournaments')
-      .insert(payload)
-      .select('*')
-      .single()
-
+    const { data, error } = await adminDb.from('tournaments').insert(payload).select('*').single()
     if (error) throw createError({ statusCode: 400, statusMessage: error.message })
     return { ok: true, tournament: data }
   }

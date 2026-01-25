@@ -1,6 +1,6 @@
 // server/api/admin/tournaments/winners.get.ts
 import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
-import { createError } from 'h3'
+import { createError, getQuery } from 'h3'
 
 async function requireAdmin(event: any) {
   const client = await serverSupabaseClient(event)
@@ -43,13 +43,13 @@ export default defineEventHandler(async (event) => {
 
   const { data, error } = await adminDb
     .from('tournament_winners')
-    .select('id, tournament_slug, rank, user_id, player_name, score, prize_bdt, created_at')
+    .select('id, tournament_slug, rank, user_id, player_name, score, prize, prize_bdt, created_at')
     .eq('tournament_slug', tournamentSlug)
     .order('rank', { ascending: true })
 
   if (error) throw createError({ statusCode: 500, statusMessage: error.message })
 
-  // add tournament_id so your admin UI type doesn't break
+  // add tournament_id so admin UI type doesn't break
   const rows = (data || []).map((r: any) => ({ ...r, tournament_id: tournamentId }))
   return { rows }
 })

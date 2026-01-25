@@ -10,7 +10,8 @@ export default defineNuxtRouteMiddleware(async (to) => {
   try {
     state = await $fetch('/api/subscriptions/me', {
       credentials: 'include',
-      headers
+      headers,
+      cache: 'no-store'
     })
   } catch {
     state = { user: null, active: false }

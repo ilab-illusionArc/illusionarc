@@ -14,12 +14,37 @@ definePageMeta({
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-
-const tournamentSlug = computed(() => String(route.params.tournamentSlug || '').trim())
 const { bySlug } = useTournaments()
 
+const tournamentSlug = computed(() => String(route.params.tournamentSlug || '').trim())
+
 type AnyTournament = any
+
 const t = ref<AnyTournament | null>(null)
+const loading = ref(true)
+const loadError = ref<string | null>(null)
+
+/* ---------------- Hard Reload Once (WORKING FIX) ----------------
+Why: Unity WebGL / iframe sometimes fails on SPA route navigation.
+A full document load fixes it. We auto-do that once per slug.
+--------------------------------------------------------------- */
+function ensureHardReloadOnce(): boolean {
+  if (!import.meta.client) return false
+  const slug = tournamentSlug.value
+  if (!slug) return false
+
+  const key = `ia.tournament.embed.hardboot.${slug}`
+  const already = sessionStorage.getItem(key) === '1'
+  if (already) return false
+
+  // Mark to prevent reload loop
+  sessionStorage.setItem(key, '1')
+
+  // Force full document reload to the same URL
+  // (this mimics the user pressing refresh, but automated)
+  window.location.replace(window.location.href)
+  return true
+}
 
 /* ---------------- Helpers ---------------- */
 function getGameSlug(x: AnyTournament) {
@@ -47,30 +72,60 @@ function msToClock(ms: number) {
   return `${h}:${m}:${s2}`
 }
 
-/* ---------------- Load tournament (API + fallback) ---------------- */
-async function loadTournament() {
+/* ---------------- Load tournament safely ---------------- */
+async function loadTournament(slug: string) {
+  if (!slug) return null
   try {
-    const api = await bySlug(tournamentSlug.value)
+    const api = await bySlug(slug)
     if (api) return api
   } catch {}
-  return (FALLBACK as any).find((x: any) => x.slug === tournamentSlug.value) || null
+  return (FALLBACK as any).find((x: any) => x.slug === slug) || null
 }
 
-t.value = await loadTournament()
-if (!t.value) throw createError({ statusCode: 404, statusMessage: 'Tournament not found' })
+async function refreshTournament() {
+  const slug = tournamentSlug.value
+  if (!slug) return
+
+  loading.value = true
+  loadError.value = null
+
+  try {
+    const row = await loadTournament(slug)
+    t.value = row || null
+    if (!t.value) loadError.value = 'Tournament not found'
+  } catch (e: any) {
+    loadError.value = e?.data?.message || e?.message || 'Failed to load tournament'
+    t.value = null
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(
+  tournamentSlug,
+  async () => {
+    t.value = null
+    loadError.value = null
+    loading.value = true
+    await nextTick()
+    await refreshTournament()
+    if (isPlayable.value) bootWithRetry().catch(() => {})
+  },
+  { immediate: true }
+)
 
 const game = computed(() => {
+  if (!t.value) return null
   const gs = getGameSlug(t.value)
   return GAMES.find((g) => g.slug === gs) || null
 })
-if (!game.value) throw createError({ statusCode: 404, statusMessage: 'Game not found' })
 
 useHead(() => ({
-  title: `${t.value!.title} — Play`,
+  title: t.value ? `${t.value.title} — Play` : 'Tournament — Play',
   meta: [{ name: 'robots', content: 'noindex' }]
 }))
 
-/* ---------------- Clock / window gating ---------------- */
+/* ---------------- Effective status (time based) ---------------- */
 const now = ref(Date.now())
 let tick: any = null
 onMounted(() => {
@@ -78,53 +133,47 @@ onMounted(() => {
 })
 onBeforeUnmount(() => tick && clearInterval(tick))
 
-const startMs = computed(() => safeTimeMs(getStartsAt(t.value)))
-const endMs = computed(() => safeTimeMs(getEndsAt(t.value)))
+const startMs = computed(() => (t.value ? safeTimeMs(getStartsAt(t.value)) : 0))
+const endMs = computed(() => (t.value ? safeTimeMs(getEndsAt(t.value)) : 0))
 
-const inTimeWindow = computed(() => {
-  if (!startMs.value || !endMs.value) return false
-  return now.value >= startMs.value && now.value < endMs.value
+const endedByTime = computed(() => !!endMs.value && now.value >= endMs.value)
+const liveByTime = computed(() => !!startMs.value && !!endMs.value && now.value >= startMs.value && now.value < endMs.value)
+
+const effectiveStatus = computed<'scheduled' | 'live' | 'ended' | 'canceled'>(() => {
+  if (!t.value) return 'scheduled'
+  const st = getStatus(t.value)
+  if (st === 'canceled') return 'canceled'
+  if (endedByTime.value) return 'ended'
+  if (liveByTime.value) return 'live'
+  return 'scheduled'
 })
 
 const isPlayable = computed(() => {
-  const st = getStatus(t.value)
-  if (st === 'canceled') return false
-  if (st === 'ended') return false
-  // allow if time window says yes (cron may not update status instantly)
-  return inTimeWindow.value
+  if (!t.value) return false
+  if (!game.value) return false
+  return effectiveStatus.value === 'live'
 })
 
-watch(isPlayable, (v, prev) => {
-  if (prev && !v) {
-    hardStop()
-    toast.add({ title: 'Tournament is not live', description: 'Play window ended.', color: 'info' })
-  }
-})
-
-const endsInMs = computed(() => Math.max(0, endMs.value - now.value))
-const startsInMs = computed(() => Math.max(0, startMs.value - now.value))
+const endsInMs = computed(() => (endMs.value ? Math.max(0, endMs.value - now.value) : 0))
+const startsInMs = computed(() => (startMs.value ? Math.max(0, startMs.value - now.value) : 0))
 
 /* ---------------- Fullscreen ---------------- */
 const isIOS = computed(() => {
-  if (import.meta.server) return false
+  if (!import.meta.client) return false
+  if (typeof navigator === 'undefined') return false
   const ua = navigator.userAgent || ''
+  const platform = (navigator as any).platform || ''
+  const maxTouch = (navigator as any).maxTouchPoints || 0
   const iOS = /iPad|iPhone|iPod/.test(ua)
-  const iPadOS = navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1
+  const iPadOS = platform === 'MacIntel' && maxTouch > 1
   return iOS || iPadOS
 })
 const showFullscreen = computed(() => !isIOS.value)
 
-/* ---------------- Player boot & auto-refresh-once ----------------
-Goal:
-- When user opens the embed route, sometimes player is blank until manual refresh.
-Fix strategy:
-1) Boot with safeStart (delayed start).
-2) If still not running, retry start a couple times.
-3) If still blank, do ONE automatic Nuxt reload (soft refresh) then boot again.
-------------------------------------------------------------- */
+/* ---------------- Player boot ---------------- */
 const playerRef = ref<InstanceType<typeof GamePlayer> | null>(null)
 const playerKey = ref(0)
-const booting = ref(true)
+const booting = ref(false)
 
 function hardStop() {
   try {
@@ -136,17 +185,15 @@ async function delay(ms: number) {
   await new Promise((r) => setTimeout(r, ms))
 }
 
-// start is sometimes too early after navigation.
-// nextTick + RAFs + small delay is usually enough.
 async function safeStart() {
   await nextTick()
   await new Promise<void>((r) => requestAnimationFrame(() => r()))
   await new Promise<void>((r) => requestAnimationFrame(() => r()))
-  await delay(80)
+  await delay(120)
   playerRef.value?.start?.()
 }
 
-async function bootOnce() {
+async function boot() {
   booting.value = true
   try {
     await safeStart()
@@ -155,95 +202,17 @@ async function bootOnce() {
   }
 }
 
-async function retryBoot(attempts = 2) {
-  for (let i = 0; i <= attempts; i++) {
-    if (!isPlayable.value) return
-    try {
-      await bootOnce()
-      // give it a moment to actually render
-      await delay(150)
-      // if GamePlayer exposes isRunning, use it. Otherwise we just assume attempt helped.
-      const running = (playerRef.value as any)?.isRunning?.() ?? true
-      if (running) return
-    } catch {}
-    // try again with a fresh mount
-    hardStop()
-    playerKey.value++
-    await delay(120)
-  }
-}
-
-// ✅ one-time auto refresh flag (per visit)
-const didAutoRefresh = ref(false)
-
-async function autoRefreshOnceIfNeeded() {
-  if (!import.meta.client) return
-  if (didAutoRefresh.value) return
-
-  // Wait a bit; if still blank, do one reload
-  await delay(650)
+async function bootWithRetry() {
   if (!isPlayable.value) return
-
-  // If GamePlayer can tell running state:
-  const running = (playerRef.value as any)?.isRunning?.() ?? false
-
-  // If no API, we still use a conservative approach:
-  // if booting ended and user still sees blank, they normally refresh.
-  // We do it once automatically.
-  if (!running) {
-    didAutoRefresh.value = true
-    // mark in session to avoid loops
-    sessionStorage.setItem(`ia.tourney.autorefresh.${tournamentSlug.value}`, '1')
-
-    // Soft reload Nuxt app (better than location.reload for SPA)
-    try {
-      await refreshNuxtData()
-    } catch {}
-
-    // Final fallback: full reload (still only once)
-    window.location.reload()
-  }
+  await boot()
 }
-
-onMounted(async () => {
-  // prevent infinite loops across refresh
-  const key = `ia.tourney.autorefresh.${tournamentSlug.value}`
-  didAutoRefresh.value = sessionStorage.getItem(key) === '1'
-
-  document.addEventListener('visibilitychange', onVisibility)
-  window.addEventListener('pagehide', onPageHide)
-
-  if (isPlayable.value) {
-    await retryBoot(2)
-    // If still problematic, do one auto refresh
-    await autoRefreshOnceIfNeeded()
-  }
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('visibilitychange', onVisibility)
-  window.removeEventListener('pagehide', onPageHide)
-})
 
 function hardReloadPlayer() {
   hardStop()
   playerKey.value++
-  retryBoot(2).catch(() => {})
+  bootWithRetry().catch(() => {})
 }
 
-function onVisibility() {
-  if (!isPlayable.value) return
-  if (document.visibilityState === 'visible') {
-    retryBoot(1).catch(() => {})
-  } else {
-    hardStop()
-  }
-}
-function onPageHide() {
-  hardStop()
-}
-
-/* ---------------- Navigation ---------------- */
 function goBack() {
   if (history.length > 1) router.back()
   else navigateTo(`/tournaments/${tournamentSlug.value}`)
@@ -255,8 +224,10 @@ function requestFullscreen() {
 }
 
 /* ---------------- Submit score ---------------- */
-async function onScore(score: number) {
+async function onScore(payload: any) {
   if (!isPlayable.value) return
+  const score = typeof payload === 'number' ? payload : Number(payload?.score)
+  if (!Number.isFinite(score) || score < 0) return
 
   try {
     await $fetch('/api/tournaments/submit', {
@@ -272,107 +243,142 @@ async function onScore(score: number) {
     })
   }
 }
+
+/* ✅ The key fix: auto hard reload once on first entry */
+onMounted(() => {
+  if (ensureHardReloadOnce()) return
+  // normal boot after the page is fully loaded (no SPA issue)
+  if (isPlayable.value) bootWithRetry().catch(() => {})
+})
 </script>
 
 <template>
-  <div class="fixed inset-0 bg-black text-white">
-    <!-- Top bar -->
-    <div
-        class="absolute left-0 right-0 top-0 z-[220] pointer-events-auto
-             border-b border-white/10 bg-black/70 backdrop-blur"
+  <ClientOnly>
+    <div class="fixed inset-0 bg-black text-white">
+      <!-- Top bar -->
+      <div
+        class="absolute left-0 right-0 top-0 z-[220] border-b border-white/10 bg-black/70 backdrop-blur"
         :style="{ paddingTop: 'env(safe-area-inset-top)' }"
-    >
-      <div class="h-14 px-3 flex items-center justify-between gap-2">
-        <div class="flex items-center gap-2 min-w-0">
-          <UButton variant="ghost" class="!rounded-full" @click="goBack">
-            <UIcon name="i-heroicons-arrow-left" class="w-5 h-5" />
-            <span class="hidden sm:inline">Back</span>
-          </UButton>
+      >
+        <div class="h-14 px-3 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 min-w-0">
+            <UButton variant="ghost" class="!rounded-full" @click="goBack">
+              <UIcon name="i-heroicons-arrow-left" class="w-5 h-5" />
+              <span class="hidden sm:inline">Back</span>
+            </UButton>
 
-          <div class="min-w-0">
-            <div class="text-sm font-semibold truncate">{{ t!.title }}</div>
-            <div class="text-xs opacity-70 truncate">
-              {{ game!.name }}
-              <span class="mx-2 opacity-40">•</span>
-              <template v-if="isPlayable">
-                Ends in <span class="font-mono">{{ msToClock(endsInMs) }}</span>
-              </template>
-              <template v-else>
-                Starts in <span class="font-mono">{{ msToClock(startsInMs) }}</span>
-              </template>
-            </div>
-          </div>
-        </div>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold truncate">
+                <span v-if="t">{{ t.title }}</span>
+                <span v-else-if="loading">Loading…</span>
+                <span v-else>Embed</span>
+              </div>
 
-        <div class="flex items-center gap-2">
-          <UButton
-              v-if="showFullscreen"
-              variant="ghost"
-              class="!rounded-full"
-              @click="requestFullscreen"
-              title="Fullscreen"
-          >
-            <UIcon name="i-heroicons-arrows-pointing-out" class="w-5 h-5" />
-            <span class="hidden sm:inline">Fullscreen</span>
-          </UButton>
+              <div class="text-xs opacity-70 truncate">
+                <span v-if="game">{{ game.name }}</span>
+                <span v-else-if="t">Game missing</span>
+                <span v-else>—</span>
 
-          <UButton variant="soft" class="!rounded-full" @click="hardReloadPlayer" title="Reload game">
-            <UIcon name="i-heroicons-arrow-path" class="w-5 h-5" />
-            <span class="hidden sm:inline">Reload</span>
-          </UButton>
-        </div>
-      </div>
-    </div>
+                <span class="mx-2 opacity-40">•</span>
 
-    <!-- Game area -->
-    <div
-        class="absolute inset-0 z-[210]"
-        :style="{
-        paddingTop: 'calc(env(safe-area-inset-top) + 56px)',
-        paddingBottom: 'env(safe-area-inset-bottom)'
-      }"
-    >
-      <div class="h-full p-2">
-        <ClientOnly>
-          <!-- Not playable screen -->
-          <div
-              v-if="!isPlayable"
-              class="h-full grid place-items-center rounded-2xl border border-white/10 bg-white/5 p-6"
-          >
-            <div class="text-center max-w-md">
-              <div class="text-lg font-semibold">Tournament is not live</div>
-              <p class="mt-2 text-sm opacity-80">
-                You can’t play outside the tournament window.
-              </p>
-
-              <div class="mt-4 flex flex-wrap gap-2 justify-center">
-                <UButton class="!rounded-full" :to="`/tournaments/${tournamentSlug}`">
-                  Back to details
-                </UButton>
-                <UButton variant="soft" class="!rounded-full" to="/tournaments">
-                  All tournaments
-                </UButton>
+                <template v-if="effectiveStatus === 'live'">
+                  Ends in <span class="font-mono">{{ msToClock(endsInMs) }}</span>
+                </template>
+                <template v-else-if="effectiveStatus === 'scheduled'">
+                  Starts in <span class="font-mono">{{ msToClock(startsInMs) }}</span>
+                </template>
+                <template v-else-if="effectiveStatus === 'ended'">Ended</template>
+                <template v-else>Canceled</template>
               </div>
             </div>
           </div>
 
-          <!-- Playable -->
+          <div class="flex items-center gap-2">
+            <UButton
+              v-if="showFullscreen && isPlayable"
+              variant="ghost"
+              class="!rounded-full"
+              @click="requestFullscreen"
+              title="Fullscreen"
+            >
+              <UIcon name="i-heroicons-arrows-pointing-out" class="w-5 h-5" />
+              <span class="hidden sm:inline">Fullscreen</span>
+            </UButton>
+
+            <UButton
+              variant="soft"
+              class="!rounded-full"
+              :disabled="!isPlayable"
+              @click="hardReloadPlayer"
+              title="Reload game"
+            >
+              <UIcon name="i-heroicons-arrow-path" class="w-5 h-5" />
+              <span class="hidden sm:inline">Reload</span>
+            </UButton>
+          </div>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div
+        class="absolute inset-0 z-[210]"
+        :style="{ paddingTop: 'calc(env(safe-area-inset-top) + 56px)', paddingBottom: 'env(safe-area-inset-bottom)' }"
+      >
+        <div class="h-full p-2">
+          <div
+            v-if="loading"
+            class="h-full grid place-items-center rounded-2xl border border-white/10 bg-white/5 p-6"
+          >
+            <div class="text-center max-w-md">
+              <div class="text-lg font-semibold">Loading tournament…</div>
+              <p class="mt-2 text-sm opacity-80">Preparing your session.</p>
+            </div>
+          </div>
+
+          <div
+            v-else-if="loadError || !t || !game"
+            class="h-full grid place-items-center rounded-2xl border border-white/10 bg-white/5 p-6"
+          >
+            <div class="text-center max-w-md">
+              <div class="text-lg font-semibold">Can’t open this tournament</div>
+              <p class="mt-2 text-sm opacity-80">{{ loadError || 'Missing tournament/game' }}</p>
+              <div class="mt-4 flex flex-wrap gap-2 justify-center">
+                <UButton class="!rounded-full" :to="`/tournaments/${tournamentSlug}`">Back to details</UButton>
+                <UButton variant="soft" class="!rounded-full" to="/tournaments">All tournaments</UButton>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-else-if="!isPlayable"
+            class="h-full grid place-items-center rounded-2xl border border-white/10 bg-white/5 p-6"
+          >
+            <div class="text-center max-w-md">
+              <div class="text-lg font-semibold">Tournament is not live</div>
+              <p class="mt-2 text-sm opacity-80">You can’t play outside the tournament window.</p>
+              <div class="mt-4 flex flex-wrap gap-2 justify-center">
+                <UButton class="!rounded-full" :to="`/tournaments/${tournamentSlug}`">Back to details</UButton>
+                <UButton variant="soft" class="!rounded-full" to="/tournaments">All tournaments</UButton>
+              </div>
+            </div>
+          </div>
+
           <div v-else class="h-full">
             <div v-if="booting" class="mb-2 rounded-xl border border-white/10 bg-white/5 p-3 text-sm opacity-80">
               Loading game…
             </div>
 
             <GamePlayer
-                :key="playerKey"
-                ref="playerRef"
-                :game="game!"
-                :defer="true"
-                :fullscreen="true"
-                @score="(e) => onScore(e.score)"
+              :key="`${tournamentSlug}:${playerKey}`"
+              ref="playerRef"
+              :game="game"
+              :defer="true"
+              :fullscreen="true"
+              @score="onScore"
             />
           </div>
-        </ClientOnly>
+        </div>
       </div>
     </div>
-  </div>
+  </ClientOnly>
 </template>

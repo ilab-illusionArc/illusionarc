@@ -2,6 +2,7 @@
 useHead({ title: 'Subscribe' })
 
 const user = useSupabaseUser()
+const toast = useToast()
 
 const loading = ref(true)
 const activating = ref<string | null>(null)
@@ -9,12 +10,19 @@ const state = ref<any>(null)
 const errorMsg = ref<string | null>(null)
 const okMsg = ref<string | null>(null)
 
+function serverCookieHeaders() {
+  // ✅ important for SSR & middleware style requests
+  return import.meta.server ? useRequestHeaders(['cookie']) : undefined
+}
+
 async function refresh() {
   loading.value = true
   errorMsg.value = null
   try {
     state.value = await $fetch('/api/subscriptions/me', {
-      credentials: 'include'
+      credentials: 'include',
+      headers: serverCookieHeaders(),
+      cache: 'no-store'
     })
   } catch (e: any) {
     errorMsg.value = e?.data?.message || e?.message || 'Failed to load subscription status'
@@ -46,19 +54,25 @@ async function activate(planCode: typeof plans[number]['code']) {
 
   activating.value = planCode
   try {
-    // ✅ EXACTLY what you requested
-    await $fetch('/api/subscriptions/activate', {
+    // ✅ activate returns updated subscription now (your server already does this)
+    const res: any = await $fetch('/api/subscriptions/activate', {
       method: 'POST',
       credentials: 'include',
+      headers: serverCookieHeaders(),
       body: { planCode }
     })
 
     okMsg.value = 'Subscription activated (dummy).'
 
-    // ✅ refresh status exactly as requested
+    // ✅ instant UI update (no waiting)
+    state.value = res
+
+    // ✅ extra: also refresh from /me once (no-cache) to ensure consistency
+    // (but NOT required; keeps things stable across environments)
     await refresh()
   } catch (e: any) {
     errorMsg.value = e?.data?.message || e?.message || 'Activation failed'
+    toast.add({ title: 'Activation failed', description: errorMsg.value, color: 'error' })
   } finally {
     activating.value = null
   }

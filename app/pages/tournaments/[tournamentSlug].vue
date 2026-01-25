@@ -17,20 +17,24 @@ const { me } = useSubscription()
 type AnyTournament = any
 const t = ref<AnyTournament | null>(null)
 
-/* -------- Load tournament (API with fallback) -------- */
-try {
-  t.value = await bySlug(slug.value)
-  if (!t.value) t.value = (FALLBACK as any).find((x: any) => x.slug === slug.value) || null
-} catch {
-  t.value = (FALLBACK as any).find((x: any) => x.slug === slug.value) || null
+/* ---------------- Load tournament (API with fallback) ---------------- */
+async function loadTournament() {
+  try {
+    const x = await bySlug(slug.value)
+    t.value = x || (FALLBACK as any).find((k: any) => k.slug === slug.value) || null
+  } catch {
+    t.value = (FALLBACK as any).find((k: any) => k.slug === slug.value) || null
+  }
 }
+await loadTournament()
 
 useHead(() => ({
   title: t.value ? `Tournament — ${t.value.title}` : 'Tournament'
 }))
 
-/* -------- Subscription state -------- */
+/* ---------------- Subscription ---------------- */
 const sub = ref<{ active: boolean; subscription?: any } | null>(null)
+
 async function refreshSub() {
   try {
     const s = await me()
@@ -41,16 +45,13 @@ async function refreshSub() {
 }
 await refreshSub()
 
-/* -------- Time ticker -------- */
+/* ---------------- Time ticker ---------------- */
 const now = ref(Date.now())
 let timer: any = null
 onMounted(() => (timer = setInterval(() => (now.value = Date.now()), 1000)))
 onBeforeUnmount(() => timer && clearInterval(timer))
 
-/* -------- Helpers -------- */
-function getStatus(x: AnyTournament) {
-  return String(x?.status || 'scheduled') as 'scheduled' | 'live' | 'ended' | 'canceled'
-}
+/* ---------------- Helpers ---------------- */
 function getGameSlug(x: AnyTournament) {
   return String(x?.game_slug ?? x?.gameSlug ?? '').trim()
 }
@@ -72,24 +73,55 @@ function msToClock(ms: number) {
   const s = String(total % 60).padStart(2, '0')
   return `${h}:${m}:${s}`
 }
+function safeName(name: any) {
+  const s = String(name || '').trim()
+  return s || 'Player'
+}
 
-const startsInMs = computed(() => (t.value ? new Date(getStartsAt(t.value)).getTime() - now.value : 0))
-const endsInMs = computed(() => (t.value ? new Date(getEndsAt(t.value)).getTime() - now.value : 0))
+/**
+ * ✅ Single source of truth for status:
+ * - If canceled in DB -> canceled
+ * - Else decide by time window:
+ *   ended if now >= ends_at
+ *   live if starts_at <= now < ends_at
+ *   scheduled otherwise
+ */
+const effectiveStatus = computed<'scheduled' | 'live' | 'ended' | 'canceled'>(() => {
+  if (!t.value) return 'scheduled'
+  const db = String(t.value?.status || 'scheduled').toLowerCase()
+  if (db === 'canceled') return 'canceled'
+
+  const s = new Date(getStartsAt(t.value)).getTime()
+  const e = new Date(getEndsAt(t.value)).getTime()
+
+  const hasS = Number.isFinite(s)
+  const hasE = Number.isFinite(e)
+
+  if (hasE && now.value >= e) return 'ended'
+  if (hasS && now.value >= s && (!hasE || now.value < e)) return 'live'
+  return 'scheduled'
+})
+
+const startsInMs = computed(() =>
+  t.value ? new Date(getStartsAt(t.value)).getTime() - now.value : 0
+)
+const endsInMs = computed(() =>
+  t.value ? new Date(getEndsAt(t.value)).getTime() - now.value : 0
+)
 
 const game = computed(() => {
   if (!t.value) return null
-  const gs = getGameSlug(t.value)
-  return GAMES.find(g => g.slug === gs) || null
+  return GAMES.find(g => g.slug === getGameSlug(t.value)) || null
 })
 
 const canPlay = computed(() => {
   if (!t.value) return false
-  if (getStatus(t.value) !== 'live') return false
+  if (effectiveStatus.value !== 'live') return false
   if (!user.value) return false
   return sub.value?.active === true
 })
 
-/* -------- Leaderboard -------- */
+/* ---------------- Leaderboard ---------------- */
 type LbRow = { player_name: string; score: number; created_at: string }
 
 const lb = ref<LbRow[]>([])
@@ -112,8 +144,14 @@ async function loadLeaderboard() {
 
 await loadLeaderboard()
 
-/* -------- Winners (final snapshot) -------- */
-type WinnerRow = { rank: 1 | 2 | 3; player_name: string; score: number; user_id?: string | null }
+/* ---------------- Winners (final snapshot) ---------------- */
+type WinnerRow = {
+  rank: 1 | 2 | 3
+  player_name: string
+  score: number
+  user_id?: string | null
+  prize_bdt?: number | null
+}
 
 const winners = ref<WinnerRow[]>([])
 const winnersPending = ref(false)
@@ -124,18 +162,11 @@ const hasWinners = computed(() => winners.value.length > 0)
 function winnerByRank(rank: 1 | 2 | 3) {
   return winners.value.find(w => Number(w.rank) === rank) || null
 }
-
 function medal(rank: 1 | 2 | 3) {
   return rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'
 }
-
 function podiumLabel(rank: 1 | 2 | 3) {
   return rank === 1 ? 'Champion' : rank === 2 ? 'Runner-up' : '3rd Place'
-}
-
-function safeName(name: any) {
-  const s = String(name || '').trim()
-  return s || 'Player'
 }
 
 async function loadWinners() {
@@ -148,34 +179,47 @@ async function loadWinners() {
     })
     winners.value = Array.isArray(res?.winners) ? (res.winners as WinnerRow[]) : []
   } catch (e: any) {
-    // keep non-blocking; page still works
     winnersError.value = e?.data?.message || e?.message || 'Failed to load winners'
     winners.value = []
   } finally {
     winnersPending.value = false
   }
 }
-watchEffect(async () => {
-  if (!t.value) return
 
-  // when time crosses start/end boundary, refetch tournament from API
-  const s = new Date(getStartsAt(t.value)).getTime()
-  const e = new Date(getEndsAt(t.value)).getTime()
+/* ---------------- Boundary refresh ----------------
+When time crosses start/end, refetch tournament + refresh leaderboard + winners.
+This fixes stale DB status issues without needing manual refresh.
+--------------------------------------------------- */
+const lastBoundaryTick = ref<number>(0)
 
-  if (Math.abs(now.value - s) < 1500 || Math.abs(now.value - e) < 1500) {
-    try {
-      const fresh = await bySlug(slug.value)
-      if (fresh) t.value = fresh
-    } catch {}
-    // also refresh winners/leaderboard
-    loadLeaderboard()
-    // if ended => load winners snapshot
-    // @ts-ignore
-    if (effectiveStatus?.value === 'ended') loadWinners?.()
+watch(
+  () => now.value,
+  async () => {
+    if (!t.value) return
+
+    const s = new Date(getStartsAt(t.value)).getTime()
+    const e = new Date(getEndsAt(t.value)).getTime()
+    if (!Number.isFinite(s) && !Number.isFinite(e)) return
+
+    const nearStart = Number.isFinite(s) ? Math.abs(now.value - s) < 1500 : false
+    const nearEnd = Number.isFinite(e) ? Math.abs(now.value - e) < 1500 : false
+    if (!nearStart && !nearEnd) return
+
+    // prevent double fire in the 1.5s window
+    if (now.value - lastBoundaryTick.value < 2000) return
+    lastBoundaryTick.value = now.value
+
+    await loadTournament()
+    await loadLeaderboard()
+
+    if (effectiveStatus.value === 'ended') {
+      await loadWinners()
+    }
   }
-})
+)
 
-if (t.value && getStatus(t.value) === 'ended') {
+/* initial winners load if already ended by time */
+if (effectiveStatus.value === 'ended') {
   await loadWinners()
 }
 </script>
@@ -211,17 +255,26 @@ if (t.value && getStatus(t.value) === 'ended') {
 
           <div class="mt-3 flex flex-wrap gap-2 text-xs">
             <span
-              v-if="getStatus(t) === 'live'"
+              v-if="effectiveStatus === 'live'"
               class="px-2 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/20 text-emerald-300"
             >
               LIVE
             </span>
+
             <span
-              v-else-if="getStatus(t) === 'scheduled'"
+              v-else-if="effectiveStatus === 'scheduled'"
               class="px-2 py-1 rounded-full bg-violet-500/15 border border-violet-400/20 text-violet-300"
             >
               SCHEDULED
             </span>
+
+            <span
+              v-else-if="effectiveStatus === 'canceled'"
+              class="px-2 py-1 rounded-full bg-red-500/15 border border-red-400/20 text-red-200"
+            >
+              CANCELED
+            </span>
+
             <span
               v-else
               class="px-2 py-1 rounded-full bg-white/10 border border-white/10 text-white/70"
@@ -245,7 +298,7 @@ if (t.value && getStatus(t.value) === 'ended') {
           </UButton>
 
           <UButton
-            v-else-if="getStatus(t) === 'live' && user && sub && !sub.active"
+            v-else-if="effectiveStatus === 'live' && user && sub && !sub.active"
             to="/subscribe"
             class="!rounded-full"
           >
@@ -269,7 +322,7 @@ if (t.value && getStatus(t.value) === 'ended') {
 
       <!-- ✅ Winners Podium (ENDED only) -->
       <div
-        v-if="getStatus(t) === 'ended'"
+        v-if="effectiveStatus === 'ended'"
         class="mt-8 rounded-2xl border border-white/10 bg-white/5 p-6 overflow-hidden"
       >
         <div class="flex items-center justify-between gap-3">
@@ -278,18 +331,10 @@ if (t.value && getStatus(t.value) === 'ended') {
               <UIcon name="i-heroicons-trophy" class="w-5 h-5" />
               Final Results
             </div>
-            <div class="mt-1 text-sm opacity-70">
-              Winners are locked after the tournament ends.
-            </div>
+            <div class="mt-1 text-sm opacity-70">Winners are locked after the tournament ends.</div>
           </div>
 
-          <UButton
-            size="xs"
-            variant="soft"
-            class="!rounded-full"
-            :loading="winnersPending"
-            @click="loadWinners"
-          >
+          <UButton size="xs" variant="soft" class="!rounded-full" :loading="winnersPending" @click="loadWinners">
             Refresh
           </UButton>
         </div>
@@ -298,21 +343,20 @@ if (t.value && getStatus(t.value) === 'ended') {
           {{ winnersError }}
         </div>
 
-        <div v-if="!winnersPending && !hasWinners" class="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-sm opacity-80">
-          No winners snapshot yet. If the tournament ended recently, wait 1 minute (cron) then refresh.
+        <div
+          v-if="!winnersPending && !hasWinners"
+          class="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-sm opacity-80"
+        >
+          No winners snapshot yet. Refresh once (auto-finalize runs on this page).
         </div>
 
         <div v-else class="mt-6">
-          <!-- Podium -->
           <div class="grid gap-4 md:grid-cols-3 items-end">
-            <!-- 🥈 Rank 2 -->
             <div class="order-2 md:order-1">
               <div class="rounded-2xl border border-white/10 bg-white/5 p-5 text-center">
                 <div class="text-3xl">🥈</div>
                 <div class="mt-2 text-xs uppercase tracking-wider opacity-70">{{ podiumLabel(2) }}</div>
-                <div class="mt-2 text-lg font-semibold">
-                  {{ safeName(winnerByRank(2)?.player_name) }}
-                </div>
+                <div class="mt-2 text-lg font-semibold">{{ safeName(winnerByRank(2)?.player_name) }}</div>
                 <div class="mt-2 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 text-sm">
                   <UIcon name="i-heroicons-bolt" class="w-4 h-4 opacity-80" />
                   <span class="font-semibold">{{ winnerByRank(2)?.score ?? '—' }}</span>
@@ -321,7 +365,6 @@ if (t.value && getStatus(t.value) === 'ended') {
               </div>
             </div>
 
-            <!-- 🥇 Rank 1 (bigger) -->
             <div class="order-1 md:order-2">
               <div class="rounded-2xl border border-amber-400/30 bg-gradient-to-b from-amber-500/15 to-white/5 p-6 text-center">
                 <div class="flex items-center justify-center gap-2">
@@ -329,9 +372,7 @@ if (t.value && getStatus(t.value) === 'ended') {
                   <span class="text-2xl">👑</span>
                 </div>
                 <div class="mt-2 text-xs uppercase tracking-wider text-amber-200/90">{{ podiumLabel(1) }}</div>
-                <div class="mt-2 text-2xl font-semibold">
-                  {{ safeName(winnerByRank(1)?.player_name) }}
-                </div>
+                <div class="mt-2 text-2xl font-semibold">{{ safeName(winnerByRank(1)?.player_name) }}</div>
                 <div class="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-400/20 bg-amber-500/10 px-4 py-1 text-sm">
                   <UIcon name="i-heroicons-bolt" class="w-4 h-4 opacity-90" />
                   <span class="font-semibold">{{ winnerByRank(1)?.score ?? '—' }}</span>
@@ -340,14 +381,11 @@ if (t.value && getStatus(t.value) === 'ended') {
               </div>
             </div>
 
-            <!-- 🥉 Rank 3 -->
             <div class="order-3">
               <div class="rounded-2xl border border-white/10 bg-white/5 p-5 text-center">
                 <div class="text-3xl">🥉</div>
                 <div class="mt-2 text-xs uppercase tracking-wider opacity-70">{{ podiumLabel(3) }}</div>
-                <div class="mt-2 text-lg font-semibold">
-                  {{ safeName(winnerByRank(3)?.player_name) }}
-                </div>
+                <div class="mt-2 text-lg font-semibold">{{ safeName(winnerByRank(3)?.player_name) }}</div>
                 <div class="mt-2 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 text-sm">
                   <UIcon name="i-heroicons-bolt" class="w-4 h-4 opacity-80" />
                   <span class="font-semibold">{{ winnerByRank(3)?.score ?? '—' }}</span>
@@ -357,7 +395,6 @@ if (t.value && getStatus(t.value) === 'ended') {
             </div>
           </div>
 
-          <!-- Winners list -->
           <div class="mt-6 grid gap-3 md:grid-cols-3">
             <div
               v-for="r in winners"
@@ -372,7 +409,6 @@ if (t.value && getStatus(t.value) === 'ended') {
                     <div class="font-semibold">{{ safeName(r.player_name) }}</div>
                   </div>
                 </div>
-
                 <div class="text-right">
                   <div class="text-xs opacity-70">Score</div>
                   <div class="text-lg font-semibold">{{ r.score }}</div>
@@ -382,7 +418,7 @@ if (t.value && getStatus(t.value) === 'ended') {
           </div>
 
           <div class="mt-5 text-xs opacity-60">
-            Tip: If the tournament just ended, winners may appear within ~1 minute after cron finalizes.
+            Auto-finalize runs on this page after the end time. Refresh if needed.
           </div>
         </div>
       </div>
@@ -394,7 +430,7 @@ if (t.value && getStatus(t.value) === 'ended') {
             <div class="rounded-xl border border-white/10 bg-white/5 p-4">
               <div class="text-xs opacity-70">Starts</div>
               <div class="mt-1 text-sm font-medium">{{ fmt(getStartsAt(t)) }}</div>
-              <div v-if="getStatus(t) === 'scheduled'" class="mt-2 text-sm opacity-80">
+              <div v-if="effectiveStatus === 'scheduled'" class="mt-2 text-sm opacity-80">
                 Starts in: <span class="font-mono">{{ msToClock(startsInMs) }}</span>
               </div>
             </div>
@@ -402,7 +438,7 @@ if (t.value && getStatus(t.value) === 'ended') {
             <div class="rounded-xl border border-white/10 bg-white/5 p-4">
               <div class="text-xs opacity-70">Ends</div>
               <div class="mt-1 text-sm font-medium">{{ fmt(getEndsAt(t)) }}</div>
-              <div v-if="getStatus(t) === 'live'" class="mt-2 text-sm opacity-80">
+              <div v-if="effectiveStatus === 'live'" class="mt-2 text-sm opacity-80">
                 Ends in: <span class="font-mono">{{ msToClock(endsInMs) }}</span>
               </div>
             </div>
@@ -415,21 +451,24 @@ if (t.value && getStatus(t.value) === 'ended') {
 
           <!-- Gate hint -->
           <div class="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5 text-sm">
-            <div v-if="getStatus(t) !== 'live'" class="opacity-80">
-              Tournament is not live yet. You can still view details and leaderboard.
+            <div v-if="effectiveStatus !== 'live'" class="opacity-80">
+              Tournament is not live. You can still view details and leaderboard.
             </div>
+
             <div v-else-if="!user" class="opacity-80">
               Please log in to play tournaments.
               <div class="mt-3">
                 <UButton to="/login" class="!rounded-full">Login</UButton>
               </div>
             </div>
+
             <div v-else-if="sub && !sub.active" class="opacity-80">
               Subscription required to play. Activate a plan to participate.
               <div class="mt-3">
                 <UButton to="/subscribe" class="!rounded-full">Subscribe</UButton>
               </div>
             </div>
+
             <div v-else class="opacity-80">
               You’re eligible to play. Click <b>Play Now</b> to start.
             </div>
@@ -444,13 +483,7 @@ if (t.value && getStatus(t.value) === 'ended') {
               <p class="mt-1 text-sm opacity-70">Tournament-only scores.</p>
             </div>
 
-            <UButton
-              size="xs"
-              variant="soft"
-              class="!rounded-full"
-              :loading="lbPending"
-              @click="loadLeaderboard"
-            >
+            <UButton size="xs" variant="soft" class="!rounded-full" :loading="lbPending" @click="loadLeaderboard">
               Refresh
             </UButton>
           </div>
@@ -471,7 +504,7 @@ if (t.value && getStatus(t.value) === 'ended') {
             >
               <div class="flex items-center gap-2">
                 <div class="w-6 text-xs opacity-70">{{ i + 1 }}</div>
-                <div class="text-sm font-medium">{{ r.player_name }}</div>
+                <div class="text-sm font-medium">{{ safeName(r.player_name) }}</div>
               </div>
               <div class="text-sm font-semibold">{{ r.score }}</div>
             </div>

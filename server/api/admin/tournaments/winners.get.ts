@@ -1,33 +1,55 @@
-// server/api/admin/tournaments/list.get.ts
-import { serverSupabaseClient } from '#supabase/server'
+// server/api/admin/tournaments/winners.get.ts
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
+import { createError } from 'h3'
+
+async function requireAdmin(event: any) {
+  const client = await serverSupabaseClient(event)
+
+  const { data: auth, error: authErr } = await client.auth.getUser()
+  const user = auth?.user
+  if (authErr || !user?.id) throw createError({ statusCode: 401, statusMessage: 'Login required' })
+
+  const { data: prof, error: profErr } = await client
+    .from('profiles')
+    .select('user_id, role')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (profErr) throw createError({ statusCode: 500, statusMessage: profErr.message })
+  if (String((prof as any)?.role || '').toLowerCase() !== 'admin') {
+    throw createError({ statusCode: 403, statusMessage: 'Admin only' })
+  }
+}
 
 export default defineEventHandler(async (event) => {
-  const supabase = await serverSupabaseClient(event)
+  await requireAdmin(event)
+  const adminDb = await serverSupabaseServiceRole(event)
 
   const query = getQuery(event)
-  const q = String(query.q || '').trim()
-  const status = String(query.status || 'all')
-  const game = String(query.game || 'all')
+  const tournamentId = String(query.tournamentId || '').trim()
+  if (!tournamentId) throw createError({ statusCode: 400, statusMessage: 'Missing tournamentId' })
 
-  let db = supabase
+  // lookup slug from tournaments table
+  const { data: t, error: tErr } = await adminDb
     .from('tournaments')
-    .select('*')
-    .order('starts_at', { ascending: false })
+    .select('id, slug')
+    .eq('id', tournamentId)
+    .maybeSingle()
 
-  if (q) {
-    db = db.or(`title.ilike.%${q}%,slug.ilike.%${q}%`)
-  }
+  if (tErr) throw createError({ statusCode: 400, statusMessage: tErr.message })
+  if (!t?.slug) throw createError({ statusCode: 404, statusMessage: 'Tournament not found' })
 
-  if (status !== 'all') {
-    db = db.eq('status', status)
-  }
+  const tournamentSlug = String((t as any).slug || '').trim()
 
-  if (game !== 'all') {
-    db = db.eq('game_slug', game)
-  }
+  const { data, error } = await adminDb
+    .from('tournament_winners')
+    .select('id, tournament_slug, rank, user_id, player_name, score, prize_bdt, created_at')
+    .eq('tournament_slug', tournamentSlug)
+    .order('rank', { ascending: true })
 
-  const { data, error } = await db
   if (error) throw createError({ statusCode: 500, statusMessage: error.message })
 
-  return { rows: data || [] }
+  // add tournament_id so your admin UI type doesn't break
+  const rows = (data || []).map((r: any) => ({ ...r, tournament_id: tournamentId }))
+  return { rows }
 })

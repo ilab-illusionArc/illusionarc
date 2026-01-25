@@ -8,7 +8,6 @@ async function requireAdmin(event: any) {
   const user = auth?.user
   if (authErr || !user?.id) throw createError({ statusCode: 401, statusMessage: 'Login required' })
 
-  // ✅ profiles uses user_id (not id)
   const { data: prof, error: profErr } = await client
     .from('profiles')
     .select('user_id, role')
@@ -16,7 +15,7 @@ async function requireAdmin(event: any) {
     .maybeSingle()
 
   if (profErr) throw createError({ statusCode: 500, statusMessage: profErr.message })
-  if (String((prof as any)?.role || '') !== 'admin') {
+  if (String((prof as any)?.role || '').toLowerCase() !== 'admin') {
     throw createError({ statusCode: 403, statusMessage: 'Admin only' })
   }
 
@@ -38,7 +37,7 @@ export default defineEventHandler(async (event) => {
 
   const body = await readBody(event)
 
-  const id = String(body?.id || '').trim() || null // uuid or null
+  const id = String(body?.id || '').trim() || null
   const title = String(body?.title || '').trim()
   const slug = String(body?.slug || slugify(title)).trim()
   const description = String(body?.description || '').trim() || null
@@ -48,8 +47,12 @@ export default defineEventHandler(async (event) => {
   const starts_at = String(body?.starts_at || '').trim()
   const ends_at = String(body?.ends_at || '').trim()
 
-  const status = String(body?.status || 'scheduled').trim() // scheduled|live|ended|canceled
+  const status = String(body?.status || 'scheduled').trim()
   const finalized = Boolean(body?.finalized ?? false)
+
+  // ✅ NEW: thumbnail fields
+  const thumbnail_url = String(body?.thumbnail_url || '').trim() || null
+  const thumbnail_path = String(body?.thumbnail_path || '').trim() || null
 
   if (!title) throw createError({ statusCode: 400, statusMessage: 'Missing title' })
   if (!slug) throw createError({ statusCode: 400, statusMessage: 'Missing slug' })
@@ -81,7 +84,11 @@ export default defineEventHandler(async (event) => {
     starts_at,
     ends_at,
     status,
-    finalized
+    finalized,
+
+    // ✅ NEW persisted fields
+    thumbnail_url,
+    thumbnail_path
   }
 
   if (!id) {

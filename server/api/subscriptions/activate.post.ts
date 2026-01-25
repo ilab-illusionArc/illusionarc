@@ -15,41 +15,46 @@ export default defineEventHandler(async (event) => {
   let planCode = String(body?.planCode || '').trim()
   if (!planCode) throw createError({ statusCode: 400, statusMessage: 'Missing planCode' })
 
-  // ✅ Optional: map UI codes -> DB codes (keep if your DB uses day/week/month)
+  // ✅ If your UI ever sends different codes, map them here.
+  // Your DB uses: 1d / 7d / 30d (from your screenshot)
   const map: Record<string, string> = {
-    '1d': 'day',
-    '7d': 'week',
-    '30d': 'month'
+    '1d': '1d',
+    '7d': '7d',
+    '30d': '30d',
+    'day': '1d',
+    'week': '7d',
+    'month': '30d'
   }
   planCode = map[planCode] || planCode
 
-  const { error: rpcErr } = await (client as any).rpc('activate_dummy_subscription', {
+  // ✅ Run RPC
+  const { data: rpcData, error: rpcErr } = await (client as any).rpc('activate_dummy_subscription', {
     p_plan_code: planCode
   })
   if (rpcErr) throw createError({ statusCode: 400, statusMessage: rpcErr.message })
 
-  // ✅ Immediately re-read latest subscription (same logic as me.get.ts)
+  // ✅ Immediately re-read latest subscription (so UI updates instantly)
   const { data, error } = await client
-      .from('subscriptions')
-      .select(
-          `
-      id, status, starts_at, ends_at, amount_bdt, currency, provider,
+    .from('subscriptions')
+    .select(
+      `
+      id, status, starts_at, ends_at, amount_bdt, currency, provider, provider_ref,
       subscription_plans:plan_id ( code, title, duration_days, price_bdt )
       `
-      )
-      .eq('user_id', user.id)
-      .order('ends_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    )
+    .eq('user_id', user.id)
+    .order('ends_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   if (error) throw createError({ statusCode: 500, statusMessage: error.message })
 
   const now = Date.now()
   const active =
-      !!data &&
-      data.status === 'active' &&
-      new Date(data.starts_at).getTime() <= now &&
-      new Date(data.ends_at).getTime() > now
+    !!data &&
+    String(data.status) === 'active' &&
+    new Date(String(data.starts_at)).getTime() <= now &&
+    new Date(String(data.ends_at)).getTime() > now
 
-  return { ok: true, user: { id: user.id }, active, subscription: data || null }
+  return { ok: true, user: { id: user.id }, active, subscription: data || null, rpc: rpcData || null }
 })

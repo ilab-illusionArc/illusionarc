@@ -27,6 +27,7 @@ export default defineEventHandler(async (event) => {
 
     const items = (Array.isArray(data) ? data : []).map((r: any) => ({
       id: r.id,
+      userId: r.user_id,
       gameSlug: r.game_slug,
       score: r.score,
       createdAt: r.created_at,

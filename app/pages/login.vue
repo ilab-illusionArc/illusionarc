@@ -21,6 +21,23 @@ const showPass = ref(false)
 // Display name (signup only, optional)
 const displayName = ref('')
 
+/** Default avatar list (update paths to your real images in /public) */
+const DEFAULT_AVATARS = [
+  '/img/avatars/a1.png',
+  '/img/avatars/a2.png',
+  '/img/avatars/a3.png',
+  '/img/avatars/a4.png',
+  '/img/avatars/a5.png'
+]
+
+function pickRandomAvatar() {
+  if (!DEFAULT_AVATARS.length) return ''
+  return DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)]
+}
+
+/** Selected signup avatar (random by default) */
+const signupAvatar = ref('')
+
 const nextUrl = computed(() => {
   const n = route.query.next
   return typeof n === 'string' && n.startsWith('/') ? n : '/arcade'
@@ -43,10 +60,17 @@ function randomDisplayName() {
   return `${a[Math.floor(Math.random() * a.length)]}${b[Math.floor(Math.random() * b.length)]}${n}`
 }
 
+function rerollSignupAvatar() {
+  signupAvatar.value = pickRandomAvatar()
+}
+
 watch(
   () => mode.value,
   (m) => {
-    if (m === 'signup' && !displayName.value.trim()) displayName.value = randomDisplayName()
+    if (m === 'signup') {
+      if (!displayName.value.trim()) displayName.value = randomDisplayName()
+      if (!signupAvatar.value) signupAvatar.value = pickRandomAvatar()
+    }
   },
   { immediate: true }
 )
@@ -69,7 +93,6 @@ async function getRole(): Promise<'admin' | 'user' | null> {
 
 function hardReloadTo(path: string) {
   if (!import.meta.client) return
-  // full URL ensures it works from any route
   window.location.assign(path)
 }
 
@@ -78,9 +101,7 @@ async function redirectAfterLogin() {
   if (!session) return
 
   const role = await getRole()
-
-  if(role === 'admin') hardReloadTo('/admin')
-
+  if (role === 'admin') hardReloadTo('/admin')
   if (role === 'admin') return navigateTo('/admin', { replace: true })
   return navigateTo(nextUrl.value, { replace: true })
 }
@@ -133,20 +154,38 @@ async function ensureDisplayNameAfterLogin() {
   const dn = await pickUniqueDisplayName('')
   const { error } = await supabase.auth.updateUser({ data: { display_name: dn } })
   if (error) return
-
   await supabase.auth.refreshSession()
 }
 
-async function upsertProfileIfPossible(dn: string) {
+async function ensureAvatarAfterLogin() {
+  const u: any = user.value
+  if (!u?.id) return
+  const md = u.user_metadata || {}
+  if (String(md.avatar_url || '').trim()) return
+
+  const avatar = pickRandomAvatar()
+  if (!avatar) return
+
+  const { error } = await supabase.auth.updateUser({ data: { avatar_url: avatar } })
+  if (error) return
+  await supabase.auth.refreshSession()
+}
+
+async function upsertProfileIfPossible(dn: string, avatarOverride?: string | null) {
   try {
     const u: any = user.value
     if (!u?.id) return
     const client: any = supabase
 
+    const avatar =
+      (avatarOverride ?? '').trim() ||
+      String(u.user_metadata?.avatar_url || '').trim() ||
+      null
+
     const { error } = await client.from('profiles').upsert({
       user_id: u.id,
       display_name: dn,
-      avatar_url: u.user_metadata?.avatar_url || null,
+      avatar_url: avatar,
       updated_at: new Date().toISOString()
     })
 
@@ -179,36 +218,36 @@ async function submit() {
       })
       if (error) throw error
 
-      // ✅ ensures metadata display name exists
       await ensureDisplayNameAfterLogin()
+      await ensureAvatarAfterLogin()
 
-      // ✅ CRITICAL: ensure profiles row exists on every login
       const u: any = user.value
       const md = u?.user_metadata || {}
       const dn =
         normalizeDisplayName(md.display_name || md.full_name || md.name || '') ||
         (await pickUniqueDisplayName(displayName.value || ''))
+
       await upsertProfileIfPossible(dn)
 
       toast.add({ title: 'Welcome back', description: 'Logged in successfully.', color: 'success' })
-
       await redirectAfterLogin()
       return
     }
 
     // signup
     const picked = await pickUniqueDisplayName(displayName.value)
+    const avatar = (signupAvatar.value || pickRandomAvatar()).trim()
 
     const { data, error } = await supabase.auth.signUp({
       email: email.value.trim(),
       password: password.value,
-      options: { data: { display_name: picked } }
+      options: { data: { display_name: picked, avatar_url: avatar } }
     })
     if (error) throw error
 
     if (data?.session) {
       await supabase.auth.refreshSession()
-      await upsertProfileIfPossible(picked)
+      await upsertProfileIfPossible(picked, avatar)
     }
 
     toast.add({
@@ -247,8 +286,10 @@ function continueBrowsing() {
     <div class="orb orbC" aria-hidden="true" />
 
     <UContainer class="relative py-10 md:py-14">
-      <div class="grid gap-8 lg:grid-cols-2 items-center">
-        <div class="max-w-xl">
+      <!-- ✅ form first on mobile/tablet; normal layout on lg+ -->
+      <div class="grid gap-8 lg:grid-cols-2 items-start">
+        <!-- LEFT SIDE (goes below on mobile/tablet) -->
+        <div class="order-2 lg:order-1 max-w-xl">
           <div class="badge">
             <UIcon name="i-heroicons-lock-closed" class="w-4 h-4" />
             Login required to play games
@@ -302,7 +343,8 @@ function continueBrowsing() {
           </div>
         </div>
 
-        <div class="lg:justify-self-end w-full max-w-xl">
+        <!-- FORM (top on mobile/tablet) -->
+        <div class="order-1 lg:order-2 lg:justify-self-end w-full max-w-xl">
           <div class="card">
             <div class="cardHead">
               <div class="flex items-center justify-between gap-3">
@@ -331,12 +373,38 @@ function continueBrowsing() {
             <div class="cardBody">
               <div class="grid gap-4">
                 <UFormGroup label="Email" required>
-                  <UInput v-model="email" placeholder="you@email.com" autocomplete="email" icon="i-heroicons-envelope" />
+                  <UInput
+                    v-model="email"
+                    class="w-full"
+                    placeholder="you@email.com"
+                    autocomplete="email"
+                    icon="i-heroicons-envelope"
+                  />
                 </UFormGroup>
+
+                <!-- Default avatar (signup) -->
+                <div v-if="mode === 'signup'" class="flex items-center gap-3">
+                  <div class="h-10 w-10 rounded-full overflow-hidden border border-white/10 bg-black/30">
+                    <img
+                      v-if="signupAvatar"
+                      :src="signupAvatar"
+                      class="h-full w-full object-cover"
+                      alt="Default avatar"
+                      referrerpolicy="no-referrer"
+                    />
+                  </div>
+                  <div class="flex-1">
+                    <div class="text-xs opacity-70">Default avatar (random)</div>
+                    <UButton size="xs" variant="ghost" @click="rerollSignupAvatar">
+                      Randomize
+                    </UButton>
+                  </div>
+                </div>
 
                 <UFormGroup v-if="mode === 'signup'" label="Display name (optional)">
                   <UInput
                     v-model="displayName"
+                    class="w-full"
                     placeholder="e.g. Souvik / NeonRider1234"
                     autocomplete="nickname"
                     icon="i-heroicons-user"
@@ -352,6 +420,7 @@ function continueBrowsing() {
                 <UFormGroup label="Password" required>
                   <UInput
                     v-model="password"
+                    class="w-full"
                     :type="showPass ? 'text' : 'password'"
                     placeholder="••••••••"
                     :autocomplete="mode === 'signin' ? 'current-password' : 'new-password'"
@@ -368,6 +437,7 @@ function continueBrowsing() {
 
                 <div class="grid gap-2 sm:grid-cols-2">
                   <UButton
+                    class="w-full"
                     color="primary"
                     variant="solid"
                     size="lg"
@@ -379,7 +449,7 @@ function continueBrowsing() {
                     {{ mode === 'signin' ? 'Login' : 'Create account' }}
                   </UButton>
 
-                  <UButton variant="soft" size="lg" @click="continueBrowsing">
+                  <UButton class="w-full" variant="soft" size="lg" @click="continueBrowsing">
                     <UIcon name="i-heroicons-home" class="w-5 h-5" />
                     Continue browsing
                   </UButton>

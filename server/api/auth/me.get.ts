@@ -1,16 +1,22 @@
-import { serverSupabaseClient, serverSupabaseSession } from '#supabase/server'
+// server/api/auth/me.get.ts
+import { serverSupabaseClient, serverSupabaseUser, serverSupabaseSession } from '#supabase/server'
 
 export default defineEventHandler(async (event) => {
-    const client = await serverSupabaseClient(event)
+  const client = await serverSupabaseClient(event)
 
-    // session from SSR cookies
-    const session = await serverSupabaseSession(event)
+  // ✅ user from SSR cookies (typed)
+  const sessionUser = await serverSupabaseUser(event)
 
-    // also try via auth.getUser (more direct)
-    const { data } = await client.auth.getUser()
+  // (optional) session info if you need it, but it won't have `.user`
+  const session = await serverSupabaseSession(event)
 
-    return {
-        sessionUser: session?.user ? { id: session.user.id, email: session.user.email } : null,
-        getUser: data?.user ? { id: data.user.id, email: data.user.email } : null
-    }
+  // also try via auth.getUser (direct)
+  const { data, error } = await client.auth.getUser()
+
+  return {
+    session: session ? { expires_at: session.expires_at } : null,
+    sessionUser: sessionUser ? { id: sessionUser.id, email: sessionUser.email } : null,
+    getUser: data?.user ? { id: data.user.id, email: data.user.email } : null,
+    getUserError: error?.message ?? null
+  }
 })

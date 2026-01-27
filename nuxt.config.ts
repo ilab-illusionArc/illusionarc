@@ -98,7 +98,6 @@ export default defineNuxtConfig({
    *   then tighten CSP sources as you confirm what your site actually needs. :contentReference[oaicite:1]{index=1}
    */
   security: {
-    // Strict CSP support (SSR uses nonces; SSG can use hashes/meta)
     nonce: true,
     sri: true,
     ssg: {
@@ -107,115 +106,48 @@ export default defineNuxtConfig({
       hashStyles: false,
       exportToPresets: true
     },
-    corsHandler: false, // Disable CORS handling; configure via proxy/CDN if needed
 
-    // Extra hardening utilities (enabled by default; keeping explicit)
-    hidePoweredBy: true, // :contentReference[oaicite:2]{index=2}
-    removeLoggers: true, // :contentReference[oaicite:3]{index=3}
-
-    // Middleware protections
-    rateLimiter: {
-      // Built-in limiter is “basic”; still useful as an app-layer brake. :contentReference[oaicite:4]{index=4}
-      tokensPerInterval: 150,
-      interval: 300000, // 5 min
-      headers: false,
-      throwError: true
-      // If you use Cloudflare, consider: ipHeader: 'cf-connecting-ip'
-    },
-    requestSizeLimiter: {
-      maxRequestSizeInBytes: 2_000_000,
-      maxUploadFileRequestInBytes: 8_000_000,
-      throwError: true
-    }, // :contentReference[oaicite:5]{index=5}
-
-    // Optional “stronger” protections (safe to enable; may require small app changes)
-    xssValidator: {},
-    csrf: false, // disabled by default; enabling is a security win :contentReference[oaicite:6]{index=6}
-
-    // Security headers (override defaults with stricter choices)
     headers: {
-      /**
-       * Clickjacking / framing:
-       * - Default: SAMEORIGIN via xFrameOptions :contentReference[oaicite:7]{index=7}
-       * - Also enforce with CSP frame-ancestors (more powerful) :contentReference[oaicite:8]{index=8}
-       */
       xFrameOptions: 'SAMEORIGIN',
-
-      /**
-       * HSTS:
-       * Only enable preload if you are 100% HTTPS on root + subdomains.
-       * Default is already enabled by nuxt-security. :contentReference[oaicite:9]{index=9}
-       */
       strictTransportSecurity: {
-        maxAge: 31536000, // 1 year
+        maxAge: 31536000,
         includeSubdomains: true,
         preload: false
       },
-
-      /**
-       * Privacy + API surface tightening
-       */
-      referrerPolicy: 'strict-origin-when-cross-origin', // :contentReference[oaicite:10]{index=10}
+      referrerPolicy: 'strict-origin-when-cross-origin',
       permissionsPolicy: {
-        // Lock down powerful APIs unless you truly use them
         camera: [],
         microphone: [],
         geolocation: [],
         payment: [],
         usb: [],
         'display-capture': [],
-        fullscreen: ["self"] // if you need fullscreen, remove this line or set allowed origins
-      }, // :contentReference[oaicite:11]{index=11}
+        fullscreen: ['self']
+      },
 
-      /**
-       * Cross-origin isolation headers:
-       * Default COEP is "credentialless" in nuxt-security. :contentReference[oaicite:12]{index=12}
-       * Keep defaults unless you KNOW you need SharedArrayBuffer / crossOriginIsolated.
-       * (If you do, we’ll configure COOP/COEP carefully per-route.)
-       */
-      // crossOriginEmbedderPolicy: 'credentialless',
-      // crossOriginOpenerPolicy: 'same-origin',
+      // ✅ key change
+      contentSecurityPolicy: import.meta.dev
+        ? false
+        : {
+            'base-uri': ["'none'"],
+            'object-src': ["'none'"],
+            'frame-ancestors': ["'self'"],
+            'default-src': ["'self'"],
+            'connect-src': ["'self'", 'https:', 'wss:'],
+            'img-src': ["'self'", 'data:', 'https:'],
+            'font-src': ["'self'", 'data:', 'https:'],
+            'style-src': ["'self'", 'https:', "'unsafe-inline'"],
 
-      /**
-       * CSP:
-       * This is a strong “Nuxt-friendly” baseline (strict-dynamic + nonce).
-       * Tighten connect-src/img-src/etc once you know every external domain you use. :contentReference[oaicite:13]{index=13}
-       */
-      contentSecurityPolicy: {
-        'base-uri': ["'none'"],
-        'object-src': ["'none'"],
-        'frame-ancestors': ["'self'"],
+            // ✅ add strict-dynamic (recommended with nonce)
+            'script-src': ["'self'", "'nonce-{{nonce}}'", "'strict-dynamic'"],
+            'script-src-attr': ["'none'"],
 
-        // Your pages
-        'default-src': ["'self'"],
-
-        // API / websocket (Supabase uses https + wss)
-        'connect-src': ["'self'", 'https:', 'wss:'],
-
-        // Images / fonts (Nuxt Image often uses data: for placeholders; keep it)
-        'img-src': ["'self'", 'data:', 'https:'],
-        'font-src': ["'self'", 'data:', 'https:'],
-
-        // Styles: Nuxt UI / Tailwind often injects inline styles in dev.
-        // Keep 'unsafe-inline' ONLY in style-src (not script-src).
-        'style-src': ["'self'", 'https:', "'unsafe-inline'"],
-
-        // ✅ The important part: SAFE script policy
-        'script-src': [
-          "'self'",
-          "'nonce-{{nonce}}'"
-        ],
-        'script-src-attr': ["'none'"],
-
-        // Workers (some libraries use blob workers)
-        'worker-src': ["'self'", 'blob:'],
-
-        // Optional extras
-        'form-action': ["'self'"],
-        'manifest-src': ["'self'"],
-        'upgrade-insecure-requests': true
-      }
-    },
+            'worker-src': ["'self'", 'blob:'],
+            'form-action': ["'self'"],
+            'manifest-src': ["'self'"],
+            'upgrade-insecure-requests': true
+          }
+    }
   },
   routeRules: {
     // ✅ Embeds: allow framing, avoid COOP/COEP issues
@@ -315,6 +247,30 @@ export default defineNuxtConfig({
           }
         }
       }
+    }
+  },
+  vite: {
+    build: {
+      rollupOptions: {
+        onwarn(warning, warn) {
+          // Supabase internal bundle warning (harmless)
+          if (
+            warning.code === 'UNUSED_EXTERNAL_IMPORT' &&
+            typeof warning.message === 'string' &&
+            warning.message.includes('PostgrestError') &&
+            warning.message.includes('@supabase/supabase-js')
+          ) {
+            return
+          }
+
+          warn(warning)
+        }
+      }
+    }
+  },
+  typescript: {
+    tsConfig: {
+      include: ['~/types/**/*.d.ts', '~/types/**/*.ts']
     }
   }
 })

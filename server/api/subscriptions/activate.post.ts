@@ -2,6 +2,23 @@
 import { serverSupabaseClient } from '#supabase/server'
 import { createError, readBody } from 'h3'
 
+type SubscriptionRow = {
+  id: string
+  status: string
+  starts_at: string
+  ends_at: string
+  amount_bdt: number | null
+  currency: string | null
+  provider: string | null
+  provider_ref: string | null
+  subscription_plans?: {
+    code: string
+    title: string
+    duration_days: number
+    price_bdt: number
+  } | null
+}
+
 export default defineEventHandler(async (event) => {
   const client = await serverSupabaseClient(event)
 
@@ -45,7 +62,7 @@ export default defineEventHandler(async (event) => {
     .eq('user_id', user.id)
     .order('ends_at', { ascending: false })
     .limit(1)
-    .maybeSingle()
+    .maybeSingle<SubscriptionRow>()
 
   if (error) throw createError({ statusCode: 500, statusMessage: error.message })
 

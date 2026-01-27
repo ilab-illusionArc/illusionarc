@@ -218,13 +218,28 @@ const initials = computed(() => {
   const n = (displayName.value || '').trim()
   return n ? n.slice(0, 1).toUpperCase() : 'U'
 })
-
+watch(
+  () => user.value?.id,
+  (id) => {
+    if (!id) open.value = false
+  }
+)
 async function logout() {
   try {
-    await supabase.auth.signOut()
-    toast.add({ title: 'Logged out', color: 'success' })
+    // 1) close drawer instantly (UI feels responsive)
     open.value = false
-    await navigateTo('/', { replace: true })
+
+    // 2) sign out
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
+
+    // 3) toast (optional)
+    toast.add({ title: 'Logged out', color: 'success' })
+
+    // 4) hard redirect (most reliable)
+    if (import.meta.client) {
+      window.location.assign('/login')
+    }
   } catch (e: any) {
     toast.add({ title: 'Logout failed', description: e?.message || '', color: 'error' })
   }

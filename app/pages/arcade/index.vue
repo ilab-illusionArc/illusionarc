@@ -3,6 +3,51 @@ import { GAMES } from '@/data/games'
 
 useHead({ title: 'Arcade' })
 
+const supabase = useSupabaseClient()
+const authUser = useSupabaseUser()
+const toast = useToast()
+
+/* ---------------- Mandatory phone gate (after login) ----------------
+   If user is logged in but has no phone in profiles, force redirect to /profile
+--------------------------------------------------------------------- */
+const checkingPhone = ref(true)
+
+async function requirePhoneOrRedirect() {
+  // only runs on client to avoid SSR redirects/hydration issues
+  if (!import.meta.client) return
+
+  checkingPhone.value = true
+  try {
+    // reliable auth check
+    const { data: { user }, error: userErr } = await supabase.auth.getUser()
+    if (userErr || !user?.id) return // not logged in -> no gate here
+
+    // read phone from profiles (your schema: profiles.user_id PK -> auth.users.id)
+    const { data, error } = await (supabase as any)
+      .from('profiles')
+      .select('phone')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    // treat missing row / blocked select / empty phone as "missing"
+    const phone = String(data?.phone || '').trim()
+    if (error || !phone) {
+      toast.add({
+        title: 'Phone number required',
+        description: 'Please add your phone number to continue.',
+        color: 'warning'
+      })
+
+      // redirect to profile and lock the flow
+      return navigateTo('/profile?needPhone=1&next=/arcade', { replace: true })
+    }
+  } finally {
+    checkingPhone.value = false
+  }
+}
+
+onMounted(requirePhoneOrRedirect)
+
 /* ---------------- Tournament exclusivity ----------------
    If a game is in a LIVE tournament, it must not show in Arcade.
    Source: GET /api/tournaments/live-games
@@ -71,6 +116,26 @@ const featured = computed(() => arcadeSource.value.filter(g => g.featured))
 
 <template>
   <UContainer class="py-12">
+    <!-- ✅ tiny cool gate overlay while checking (no layout shift) -->
+    <div
+      v-if="checkingPhone && authUser?.id"
+      class="mb-6 rounded-2xl border border-black/10 dark:border-white/10
+             bg-white/70 dark:bg-white/5 backdrop-blur p-4"
+    >
+      <div class="flex items-center gap-3">
+        <div class="h-9 w-9 rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-black/30 grid place-items-center">
+          <UIcon name="i-heroicons-shield-check" class="h-5 w-5 opacity-80" />
+        </div>
+        <div class="min-w-0">
+          <div class="text-sm font-semibold text-black dark:text-white">Verifying your profile…</div>
+          <div class="text-xs text-black/60 dark:text-white/60">Phone number is required to continue.</div>
+        </div>
+        <div class="ml-auto">
+          <UIcon name="i-heroicons-arrow-path" class="h-5 w-5 animate-spin opacity-70" />
+        </div>
+      </div>
+    </div>
+
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 class="text-3xl font-semibold text-black dark:text-white">Arcade</h1>

@@ -18,10 +18,7 @@ const loading = ref(false)
 const mode = ref<'signin' | 'signup'>('signin')
 const showPass = ref(false)
 
-// Display name (signup only, optional)
-const displayName = ref('')
-
-/** Default avatar list (update paths to your real images in /public) */
+/** Default avatar list (paths in /public) */
 const DEFAULT_AVATARS = [
   '/img/avatars/a1.png',
   '/img/avatars/a2.png',
@@ -35,9 +32,83 @@ function pickRandomAvatar() {
   return DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)]
 }
 
-/** Selected signup avatar (random by default) */
-const signupAvatar = ref('')
+/* ---------------- Country code + phone (signup only) ---------------- */
+type CountryOpt = {
+  label: string // e.g. "BD +880"
+  dial: string // e.g. "+880"
+  iso: string // e.g. "BD"
+}
 
+/** Flag emoji from ISO (BD -> 🇧🇩) */
+function isoToFlagEmoji(iso: string) {
+  const code = String(iso || '').trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) return '🏳️'
+  return code.replace(/[A-Z]/g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
+}
+
+const COUNTRY_CODES: CountryOpt[] = [
+  { label: 'US +1', dial: '+1', iso: 'US' },
+  { label: 'GB +44', dial: '+44', iso: 'GB' },
+  { label: 'CA +1', dial: '+1', iso: 'CA' },
+  { label: 'AU +61', dial: '+61', iso: 'AU' },
+  { label: 'DE +49', dial: '+49', iso: 'DE' },
+  { label: 'FR +33', dial: '+33', iso: 'FR' },
+  { label: 'IT +39', dial: '+39', iso: 'IT' },
+  { label: 'ES +34', dial: '+34', iso: 'ES' },
+  { label: 'NL +31', dial: '+31', iso: 'NL' },
+  { label: 'SE +46', dial: '+46', iso: 'SE' },
+  { label: 'NO +47', dial: '+47', iso: 'NO' },
+  { label: 'DK +45', dial: '+45', iso: 'DK' },
+
+  { label: 'BR +55', dial: '+55', iso: 'BR' },
+  { label: 'MX +52', dial: '+52', iso: 'MX' },
+  { label: 'AR +54', dial: '+54', iso: 'AR' },
+
+  { label: 'IN +91', dial: '+91', iso: 'IN' },
+  { label: 'PK +92', dial: '+92', iso: 'PK' },
+  { label: 'BD +880', dial: '+880', iso: 'BD' },
+  { label: 'LK +94', dial: '+94', iso: 'LK' },
+  { label: 'NP +977', dial: '+977', iso: 'NP' },
+
+  { label: 'JP +81', dial: '+81', iso: 'JP' },
+  { label: 'KR +82', dial: '+82', iso: 'KR' },
+  { label: 'CN +86', dial: '+86', iso: 'CN' },
+  { label: 'SG +65', dial: '+65', iso: 'SG' },
+  { label: 'MY +60', dial: '+60', iso: 'MY' },
+  { label: 'TH +66', dial: '+66', iso: 'TH' },
+  { label: 'ID +62', dial: '+62', iso: 'ID' },
+  { label: 'PH +63', dial: '+63', iso: 'PH' },
+
+  { label: 'AE +971', dial: '+971', iso: 'AE' },
+  { label: 'SA +966', dial: '+966', iso: 'SA' },
+  { label: 'EG +20', dial: '+20', iso: 'EG' },
+  { label: 'ZA +27', dial: '+27', iso: 'ZA' }
+]
+
+// ✅ IMPORTANT: keep v-model as the FULL OBJECT (do NOT use value-key)
+const selectedCountry = ref<CountryOpt>(COUNTRY_CODES.find((c) => c.iso === 'BD') || COUNTRY_CODES[0])
+const phoneLocal = ref('')
+
+function onlyDigits(v: string) {
+  return String(v || '').replace(/[^\d]/g, '')
+}
+
+function toE164(dial: string, local: string) {
+  const d = String(dial || '').trim()
+  let n = onlyDigits(local)
+  n = n.replace(/^0+/, '')
+  if (!d.startsWith('+')) return ''
+  if (!n) return ''
+  return `${d}${n}`
+}
+
+function validatePhoneLocal(local: string) {
+  const n = onlyDigits(local).replace(/^0+/, '')
+  if (n.length < 6 || n.length > 14) return 'Please enter a valid phone number.'
+  return null
+}
+
+/* ---------------- Existing logic ---------------- */
 const nextUrl = computed(() => {
   const n = route.query.next
   return typeof n === 'string' && n.startsWith('/') ? n : '/arcade'
@@ -60,24 +131,13 @@ function randomDisplayName() {
   return `${a[Math.floor(Math.random() * a.length)]}${b[Math.floor(Math.random() * b.length)]}${n}`
 }
 
-function rerollSignupAvatar() {
-  signupAvatar.value = pickRandomAvatar()
-}
-
-watch(
-  () => mode.value,
-  (m) => {
-    if (m === 'signup') {
-      if (!displayName.value.trim()) displayName.value = randomDisplayName()
-      if (!signupAvatar.value) signupAvatar.value = pickRandomAvatar()
-    }
-  },
-  { immediate: true }
-)
-
 const canSubmit = computed(() => {
   if (!isEmailValid(email.value)) return false
   if (password.value.length < 6) return false
+  if (mode.value === 'signup') {
+    const e = validatePhoneLocal(phoneLocal.value)
+    if (e) return false
+  }
   if (loading.value) return false
   return true
 })
@@ -97,7 +157,9 @@ function hardReloadTo(path: string) {
 }
 
 async function redirectAfterLogin() {
-  const { data: { session } } = await supabase.auth.getSession()
+  const {
+    data: { session }
+  } = await supabase.auth.getSession()
   if (!session) return
 
   const role = await getRole()
@@ -171,24 +233,27 @@ async function ensureAvatarAfterLogin() {
   await supabase.auth.refreshSession()
 }
 
-async function upsertProfileIfPossible(dn: string, avatarOverride?: string | null) {
+async function upsertProfileIfPossible(dn: string, avatarOverride?: string | null, phoneOverride?: string | null) {
   try {
     const u: any = user.value
     if (!u?.id) return
     const client: any = supabase
 
-    const avatar =
-      (avatarOverride ?? '').trim() ||
-      String(u.user_metadata?.avatar_url || '').trim() ||
-      null
+    const md = u.user_metadata || {}
 
-    const { error } = await client.from('profiles').upsert({
+    const avatar = (avatarOverride ?? '').trim() || String(md.avatar_url || '').trim() || null
+    const phone = (phoneOverride ?? '').trim() || String(md.phone || '').trim() || null
+
+    const payload: any = {
       user_id: u.id,
       display_name: dn,
       avatar_url: avatar,
       updated_at: new Date().toISOString()
-    })
+    }
 
+    if (phone) payload.phone = phone
+
+    const { error } = await client.from('profiles').upsert(payload, { onConflict: 'user_id' })
     if (error) console.warn('profiles upsert error:', error.message)
   } catch (e) {
     console.warn('profiles upsert exception:', e)
@@ -223,9 +288,7 @@ async function submit() {
 
       const u: any = user.value
       const md = u?.user_metadata || {}
-      const dn =
-        normalizeDisplayName(md.display_name || md.full_name || md.name || '') ||
-        (await pickUniqueDisplayName(displayName.value || ''))
+      const dn = normalizeDisplayName(md.display_name || md.full_name || md.name || '') || (await pickUniqueDisplayName(''))
 
       await upsertProfileIfPossible(dn)
 
@@ -234,25 +297,32 @@ async function submit() {
       return
     }
 
-    // signup
-    const picked = await pickUniqueDisplayName(displayName.value)
-    const avatar = (signupAvatar.value || pickRandomAvatar()).trim()
+    // ✅ signup (phone required)
+    const pErr = validatePhoneLocal(phoneLocal.value)
+    if (pErr) {
+      toast.add({ title: 'Invalid phone', description: pErr, color: 'warning' })
+      return
+    }
+
+    const dn = await pickUniqueDisplayName('')
+    const avatar = pickRandomAvatar()
+    const phoneE164 = toE164(selectedCountry.value.dial, phoneLocal.value)
 
     const { data, error } = await supabase.auth.signUp({
       email: email.value.trim(),
       password: password.value,
-      options: { data: { display_name: picked, avatar_url: avatar } }
+      options: { data: { display_name: dn, avatar_url: avatar, phone: phoneE164 } }
     })
     if (error) throw error
 
     if (data?.session) {
       await supabase.auth.refreshSession()
-      await upsertProfileIfPossible(picked, avatar)
+      await upsertProfileIfPossible(dn, avatar, phoneE164)
     }
 
     toast.add({
       title: 'Account created',
-      description: `Welcome, ${picked}! ${data?.session ? '' : 'If email confirmation is enabled, check your inbox.'}`,
+      description: data?.session ? 'Welcome! Your account is ready.' : 'If email confirmation is enabled, check your inbox.',
       color: 'success'
     })
 
@@ -261,9 +331,8 @@ async function submit() {
     const msg = String(e?.message || e?.error_description || '')
     const friendly =
       msg.includes('duplicate') || msg.includes('23505')
-        ? 'That display name is already taken. Try another one.'
+        ? 'Duplicate data detected. Please try again.'
         : msg || 'Please try again.'
-
     toast.add({ title: 'Auth failed', description: friendly, color: 'error' })
   } finally {
     loading.value = false
@@ -286,9 +355,8 @@ function continueBrowsing() {
     <div class="orb orbC" aria-hidden="true" />
 
     <UContainer class="relative py-10 md:py-14">
-      <!-- ✅ form first on mobile/tablet; normal layout on lg+ -->
       <div class="grid gap-8 lg:grid-cols-2 items-start">
-        <!-- LEFT SIDE (goes below on mobile/tablet) -->
+        <!-- LEFT SIDE -->
         <div class="order-2 lg:order-1 max-w-xl">
           <div class="badge">
             <UIcon name="i-heroicons-lock-closed" class="w-4 h-4" />
@@ -343,7 +411,7 @@ function continueBrowsing() {
           </div>
         </div>
 
-        <!-- FORM (top on mobile/tablet) -->
+        <!-- FORM -->
         <div class="order-1 lg:order-2 lg:justify-self-end w-full max-w-xl">
           <div class="card">
             <div class="cardHead">
@@ -353,9 +421,11 @@ function continueBrowsing() {
                     {{ mode === 'signin' ? 'Sign in' : 'Create account' }}
                   </div>
                   <div class="text-xs opacity-70 mt-1">
-                    {{ mode === 'signin'
-                      ? 'Login to play games and save scores.'
-                      : 'Create an account to join the leaderboard.' }}
+                    {{
+                      mode === 'signin'
+                        ? 'Login to play games and save scores.'
+                        : 'Create an account to join the leaderboard.'
+                    }}
                   </div>
                 </div>
 
@@ -382,40 +452,48 @@ function continueBrowsing() {
                   />
                 </UFormGroup>
 
-                <!-- Default avatar (signup) -->
-                <div v-if="mode === 'signup'" class="flex items-center gap-3">
-                  <div class="h-10 w-10 rounded-full overflow-hidden border border-white/10 bg-black/30">
-                    <img
-                      v-if="signupAvatar"
-                      :src="signupAvatar"
-                      class="h-full w-full object-cover"
-                      alt="Default avatar"
-                      referrerpolicy="no-referrer"
-                    />
-                  </div>
-                  <div class="flex-1">
-                    <div class="text-xs opacity-70">Default avatar (random)</div>
-                    <UButton size="xs" variant="ghost" @click="rerollSignupAvatar">
-                      Randomize
-                    </UButton>
-                  </div>
-                </div>
+                <!-- ✅ Phone required (signup only) -->
+                <div v-if="mode === 'signup'" class="grid gap-3 sm:grid-cols-[160px_1fr]">
+                  <UFormGroup label="Code" required>
+                    <USelectMenu
+                      v-model="selectedCountry"
+                      :items="COUNTRY_CODES"
+                      class="w-full"
+                      :ui="{ width: 'w-full' }"
+                      :search-input="{ placeholder: 'Search…', icon: 'i-heroicons-magnifying-glass' }"
+                    >
+                      <!-- ✅ Selected trigger -->
+                      <template #label>
+                        <span class="inline-flex items-center gap-2 tabular-nums whitespace-nowrap">
+                          <span class="text-base leading-none">{{ isoToFlagEmoji(selectedCountry.iso) }}</span>
+                          <span class="whitespace-nowrap">{{ selectedCountry.label }}</span>
+                        </span>
+                      </template>
 
-                <UFormGroup v-if="mode === 'signup'" label="Display name (optional)">
-                  <UInput
-                    v-model="displayName"
-                    class="w-full"
-                    placeholder="e.g. Souvik / NeonRider1234"
-                    autocomplete="nickname"
-                    icon="i-heroicons-user"
-                  />
-                  <div class="mt-1 text-xs opacity-60 flex items-center justify-between">
-                    <span>Must be unique.</span>
-                    <UButton size="xs" variant="ghost" @click="displayName = randomDisplayName()">
-                      Random
-                    </UButton>
-                  </div>
-                </UFormGroup>
+                      <!-- ✅ Dropdown options -->
+                      <template #option="{ option }">
+                        <span class="inline-flex items-center gap-2 tabular-nums whitespace-nowrap">
+                          <span class="text-base leading-none">{{ isoToFlagEmoji(option.iso) }}</span>
+                          <span class="whitespace-nowrap">{{ option.label }}</span>
+                        </span>
+                      </template>
+                    </USelectMenu>
+                  </UFormGroup>
+
+                  <UFormGroup label="Phone" required>
+                    <UInput
+                      v-model="phoneLocal"
+                      class="w-full"
+                      placeholder="Phone number"
+                      autocomplete="tel"
+                      icon="i-heroicons-phone"
+                    />
+                    <div class="mt-1 text-xs opacity-60">
+                      Stored as:
+                      <span class="opacity-100 tabular-nums">{{ toE164(selectedCountry.dial, phoneLocal) || '—' }}</span>
+                    </div>
+                  </UFormGroup>
+                </div>
 
                 <UFormGroup label="Password" required>
                   <UInput

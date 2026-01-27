@@ -19,13 +19,7 @@ const mode = ref<'signin' | 'signup'>('signin')
 const showPass = ref(false)
 
 /** Default avatar list (paths in /public) */
-const DEFAULT_AVATARS = [
-  '/img/avatars/a1.png',
-  '/img/avatars/a2.png',
-  '/img/avatars/a3.png',
-  '/img/avatars/a4.png',
-  '/img/avatars/a5.png'
-]
+const DEFAULT_AVATARS = ['/img/avatars/a1.png', '/img/avatars/a2.png', '/img/avatars/a3.png', '/img/avatars/a4.png', '/img/avatars/a5.png']
 
 function pickRandomAvatar() {
   if (!DEFAULT_AVATARS.length) return ''
@@ -33,11 +27,7 @@ function pickRandomAvatar() {
 }
 
 /* ---------------- Country code + phone (signup only) ---------------- */
-type CountryOpt = {
-  label: string // e.g. "BD +880"
-  dial: string // e.g. "+880"
-  iso: string // e.g. "BD"
-}
+type CountryOpt = { label: string; dial: string; iso: string }
 
 /** Flag emoji from ISO (BD -> 🇧🇩) */
 function isoToFlagEmoji(iso: string) {
@@ -59,17 +49,14 @@ const COUNTRY_CODES: CountryOpt[] = [
   { label: 'SE +46', dial: '+46', iso: 'SE' },
   { label: 'NO +47', dial: '+47', iso: 'NO' },
   { label: 'DK +45', dial: '+45', iso: 'DK' },
-
   { label: 'BR +55', dial: '+55', iso: 'BR' },
   { label: 'MX +52', dial: '+52', iso: 'MX' },
   { label: 'AR +54', dial: '+54', iso: 'AR' },
-
   { label: 'IN +91', dial: '+91', iso: 'IN' },
   { label: 'PK +92', dial: '+92', iso: 'PK' },
   { label: 'BD +880', dial: '+880', iso: 'BD' },
   { label: 'LK +94', dial: '+94', iso: 'LK' },
   { label: 'NP +977', dial: '+977', iso: 'NP' },
-
   { label: 'JP +81', dial: '+81', iso: 'JP' },
   { label: 'KR +82', dial: '+82', iso: 'KR' },
   { label: 'CN +86', dial: '+86', iso: 'CN' },
@@ -78,14 +65,13 @@ const COUNTRY_CODES: CountryOpt[] = [
   { label: 'TH +66', dial: '+66', iso: 'TH' },
   { label: 'ID +62', dial: '+62', iso: 'ID' },
   { label: 'PH +63', dial: '+63', iso: 'PH' },
-
   { label: 'AE +971', dial: '+971', iso: 'AE' },
   { label: 'SA +966', dial: '+966', iso: 'SA' },
   { label: 'EG +20', dial: '+20', iso: 'EG' },
   { label: 'ZA +27', dial: '+27', iso: 'ZA' }
 ]
 
-// ✅ IMPORTANT: keep v-model as the FULL OBJECT (do NOT use value-key)
+// ✅ IMPORTANT: keep v-model as FULL object
 const selectedCountry = ref<CountryOpt>(COUNTRY_CODES.find((c) => c.iso === 'BD') || COUNTRY_CODES[0])
 const phoneLocal = ref('')
 
@@ -95,8 +81,7 @@ function onlyDigits(v: string) {
 
 function toE164(dial: string, local: string) {
   const d = String(dial || '').trim()
-  let n = onlyDigits(local)
-  n = n.replace(/^0+/, '')
+  let n = onlyDigits(local).replace(/^0+/, '')
   if (!d.startsWith('+')) return ''
   if (!n) return ''
   return `${d}${n}`
@@ -106,24 +91,6 @@ function validatePhoneLocal(local: string) {
   const n = onlyDigits(local).replace(/^0+/, '')
   if (n.length < 6 || n.length > 14) return 'Please enter a valid phone number.'
   return null
-}
-
-/**
- * ✅ Phone uniqueness check (server-side, uses Service Role)
- * Requires: server/api/auth/phone-available.post.ts (code provided below)
- */
-async function isPhoneAvailable(phoneE164: string): Promise<boolean> {
-  try {
-    const res = await $fetch<{ available: boolean }>('/api/auth/phone-available', {
-      method: 'POST',
-      body: { phone: phoneE164 }
-    })
-    return !!res?.available
-  } catch {
-    // If endpoint missing/misconfigured, do NOT block signup here.
-    // Uniqueness must still be enforced by DB unique constraint on profiles.phone.
-    return true
-  }
 }
 
 /* ---------------- Existing logic ---------------- */
@@ -155,6 +122,7 @@ const canSubmit = computed(() => {
   if (mode.value === 'signup') {
     const e = validatePhoneLocal(phoneLocal.value)
     if (e) return false
+    if (!toE164(selectedCountry.value.dial, phoneLocal.value)) return false
   }
   if (loading.value) return false
   return true
@@ -194,6 +162,7 @@ watch(
   { immediate: true }
 )
 
+/* ---------------- Uniqueness checks ---------------- */
 async function isDisplayNameTaken(name: string): Promise<boolean> {
   if (!import.meta.client) return false
   const n = normalizeDisplayName(name)
@@ -211,14 +180,29 @@ async function isDisplayNameTaken(name: string): Promise<boolean> {
 
 async function pickUniqueDisplayName(preferred: string): Promise<string> {
   let base = normalizeDisplayName(preferred) || normalizeDisplayName(randomDisplayName())
-  if (!base) base = 'Player' + Math.floor(Math.random() * 900000 + 100000)
+  if (!base) base = 'Player' + Math.floor(1000 + Math.random() * 9000)
 
   for (let i = 0; i < 7; i++) {
     const taken = await isDisplayNameTaken(base)
     if (!taken) return base
     base = `${base.slice(0, 18)}${Math.floor(10 + Math.random() * 90)}`
   }
-  return `Player${Math.floor(Math.random() * 900000 + 100000)}`
+  return `Player${Math.floor(100000 + Math.random() * 900000)}`
+}
+
+/** ✅ Phone must be unique (pre-check) */
+async function isPhoneTaken(phoneE164: string): Promise<boolean> {
+  const p = String(phoneE164 || '').trim()
+  if (!p) return false
+
+  try {
+    const client: any = supabase
+    const { data, error } = await client.from('profiles').select('user_id').eq('phone', p).limit(1)
+    if (error) return false
+    return Array.isArray(data) && data.length > 0
+  } catch {
+    return false
+  }
 }
 
 async function ensureDisplayNameAfterLogin() {
@@ -249,48 +233,39 @@ async function ensureAvatarAfterLogin() {
   await supabase.auth.refreshSession()
 }
 
-/**
- * ✅ Upsert profile (throws friendly codes for uniqueness)
- * NOTE: For phone uniqueness to truly work, add a UNIQUE constraint on profiles.phone.
- */
-async function upsertProfileOrThrow(dn: string, avatarOverride?: string | null, phoneOverride?: string | null) {
-  const u: any = user.value
-  if (!u?.id) return
+async function upsertProfileIfPossible(dn: string, avatarOverride?: string | null, phoneOverride?: string | null) {
+  try {
+    const u: any = user.value
+    if (!u?.id) return
 
-  const client: any = supabase
-  const md = u.user_metadata || {}
+    const client: any = supabase
+    const md = u.user_metadata || {}
 
-  const avatar =
-    (avatarOverride ?? '').trim() ||
-    String(md.avatar_url || '').trim() ||
-    null
+    const avatar = (avatarOverride ?? '').trim() || String(md.avatar_url || '').trim() || null
+    const phone = (phoneOverride ?? '').trim() || String(md.phone || '').trim() || null
 
-  const phone =
-    (phoneOverride ?? '').trim() ||
-    String(md.phone || '').trim() ||
-    null
-
-  const payload: any = {
-    user_id: u.id,
-    display_name: dn,
-    avatar_url: avatar,
-    updated_at: new Date().toISOString()
-  }
-  if (phone) payload.phone = phone
-
-  const { error } = await client.from('profiles').upsert(payload, { onConflict: 'user_id' })
-
-  if (error) {
-    const code = String((error as any).code || '')
-    const msg = String(error.message || '').toLowerCase()
-
-    // 23505 = unique violation in Postgres
-    if (code === '23505' || msg.includes('duplicate') || msg.includes('unique')) {
-      if (msg.includes('phone')) throw new Error('PHONE_EXISTS')
-      if (msg.includes('display')) throw new Error('DISPLAY_EXISTS')
-      throw new Error('DUPLICATE')
+    const payload: any = {
+      user_id: u.id,
+      display_name: dn,
+      avatar_url: avatar,
+      updated_at: new Date().toISOString()
     }
-    throw error
+    if (phone) payload.phone = phone
+
+    const { error } = await client.from('profiles').upsert(payload, { onConflict: 'user_id' })
+    if (error) throw error
+  } catch (e: any) {
+    // ✅ Friendly phone duplicate message
+    const msg = String(e?.message || '').toLowerCase()
+    if (e?.code === '23505' || msg.includes('duplicate key') || msg.includes('unique')) {
+      if (msg.includes('phone')) {
+        throw new Error('Phone number already exists')
+      }
+      if (msg.includes('display')) {
+        throw new Error('Display name already exists')
+      }
+    }
+    throw e
   }
 }
 
@@ -326,7 +301,7 @@ async function submit() {
         normalizeDisplayName(md.display_name || md.full_name || md.name || '') ||
         (await pickUniqueDisplayName(''))
 
-      await upsertProfileOrThrow(dn)
+      await upsertProfileIfPossible(dn)
 
       toast.add({ title: 'Welcome back', description: 'Logged in successfully.', color: 'success' })
       await redirectAfterLogin()
@@ -340,16 +315,21 @@ async function submit() {
       return
     }
 
-    const dn = await pickUniqueDisplayName('')
-    const avatar = pickRandomAvatar()
     const phoneE164 = toE164(selectedCountry.value.dial, phoneLocal.value)
-
-    // ✅ pre-check with service-role endpoint
-    const ok = await isPhoneAvailable(phoneE164)
-    if (!ok) {
-      toast.add({ title: 'Phone number already exists', description: 'Use another number.', color: 'error' })
+    if (!phoneE164) {
+      toast.add({ title: 'Invalid phone', description: 'Please enter a valid phone number.', color: 'warning' })
       return
     }
+
+    // ✅ Pre-check phone unique BEFORE creating auth user
+    const taken = await isPhoneTaken(phoneE164)
+    if (taken) {
+      toast.add({ title: 'Phone number already exists', description: 'Use a different number.', color: 'error' })
+      return
+    }
+
+    const dn = await pickUniqueDisplayName('')
+    const avatar = pickRandomAvatar()
 
     const { data, error } = await supabase.auth.signUp({
       email: email.value.trim(),
@@ -358,10 +338,21 @@ async function submit() {
     })
     if (error) throw error
 
-    // If session exists immediately, upsert profile now (will enforce UNIQUE constraint too)
     if (data?.session) {
       await supabase.auth.refreshSession()
-      await upsertProfileOrThrow(dn, avatar, phoneE164)
+
+      // ✅ Still protect with DB unique error catching (race condition safe)
+      try {
+        await upsertProfileIfPossible(dn, avatar, phoneE164)
+      } catch (e: any) {
+        if (String(e?.message || '').toLowerCase().includes('phone number already exists')) {
+          toast.add({ title: 'Phone number already exists', description: 'Use a different number.', color: 'error' })
+          // prevent staying logged-in with a “bad” account state
+          await supabase.auth.signOut()
+          return
+        }
+        throw e
+      }
     }
 
     toast.add({
@@ -376,27 +367,16 @@ async function submit() {
   } catch (e: any) {
     const msg = String(e?.message || e?.error_description || '')
 
-    // ✅ friendly messages
-    if (msg === 'PHONE_EXISTS') {
-      toast.add({ title: 'Phone number already exists', description: 'Use another number.', color: 'error' })
-      return
-    }
-    if (msg === 'DISPLAY_EXISTS') {
-      toast.add({ title: 'Display name already exists', description: 'Try again.', color: 'error' })
-      return
-    }
-
-    const lower = msg.toLowerCase()
-    if (lower.includes('phone') && (lower.includes('duplicate') || lower.includes('unique') || lower.includes('23505'))) {
-      toast.add({ title: 'Phone number already exists', description: 'Use another number.', color: 'error' })
+    // ✅ Friendly phone duplicate message (fallback)
+    if (msg.toLowerCase().includes('phone number already exists')) {
+      toast.add({ title: 'Phone number already exists', description: 'Use a different number.', color: 'error' })
       return
     }
 
     const friendly =
-      lower.includes('duplicate') || lower.includes('23505')
+      msg.includes('duplicate') || msg.includes('23505')
         ? 'Duplicate data detected. Please try again.'
         : msg || 'Please try again.'
-
     toast.add({ title: 'Auth failed', description: friendly, color: 'error' })
   } finally {
     loading.value = false
@@ -514,7 +494,7 @@ function continueBrowsing() {
                   />
                 </UFormGroup>
 
-                <!-- ✅ Phone required (signup only) -->
+                <!-- Phone required (signup only) -->
                 <div v-if="mode === 'signup'" class="grid gap-3 sm:grid-cols-[160px_1fr]">
                   <UFormGroup label="Code" required>
                     <USelectMenu
@@ -614,7 +594,7 @@ function continueBrowsing() {
 </template>
 
 <style scoped>
-/* (your CSS unchanged — keep exactly as you already have) */
+/* keep your CSS exactly as you already have */
 .authPage { position: relative; min-height: calc(100dvh - 64px); overflow: hidden; color: var(--app-fg); }
 .bg { position: absolute; inset: 0; background: var(--app-bg); }
 .wash { position: absolute; inset: 0; background: radial-gradient(900px 600px at 15% 20%, var(--wash-b), transparent 60%), radial-gradient(900px 600px at 85% 30%, var(--wash-a), transparent 60%), radial-gradient(900px 700px at 55% 90%, rgba(34, 197, 94, 0.10), transparent 60%), linear-gradient(to bottom, rgba(255, 255, 255, 0.05), transparent 35%, rgba(255, 255, 255, 0.03)); opacity: 0.9; }

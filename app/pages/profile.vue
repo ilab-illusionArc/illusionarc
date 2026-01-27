@@ -7,8 +7,10 @@ useHead({
 })
 
 definePageMeta({
-  middleware: ['require-auth'] // ✅ use real middleware file
+  middleware: ['require-auth'] // ✅ your real middleware file
 })
+
+type RoleResponse = { role: 'admin' | 'user' | null; found?: boolean }
 
 const supabase = useSupabaseClient()
 const toast = useToast()
@@ -20,6 +22,20 @@ const loading = ref(false)
 const loadingProfile = ref(true)
 const avatarUploading = ref(false)
 
+/* ---------------- Role (admin bypass phone gate) ---------------- */
+const role = ref<'admin' | 'user' | null>(null)
+const isAdmin = computed(() => role.value === 'admin')
+
+async function loadRole() {
+  try {
+    const res = await $fetch<RoleResponse>('/api/auth/role')
+    role.value = res?.role ?? null
+  } catch {
+    role.value = null
+  }
+}
+
+/* ---------------- State ---------------- */
 const state = reactive({
   display_name: '',
   avatar_url: '',
@@ -36,66 +52,59 @@ const pending = reactive({
   url: '' as string
 })
 
-/* ---------------- Country code + phone (UNICODE FLAGS) ---------------- */
+/* ---------------- Flags (Unicode like login.vue) ---------------- */
 type CountryOpt = {
-  label: string // "BD +880"
-  dial: string  // "+880"
-  iso: string   // "BD"
-  flag: string  // "🇧🇩"
+  label: string // e.g. "BD +880"
+  dial: string // e.g. "+880"
+  iso: string // e.g. "BD"
 }
 
-function flagEmojiFromIso(iso: string) {
-  const cc = String(iso || '').toUpperCase()
-  if (cc.length !== 2) return '🏳️'
-  const A = 0x1f1e6
-  const codePoints = [...cc].map(ch => A + (ch.charCodeAt(0) - 65))
-  return String.fromCodePoint(codePoints[0], codePoints[1])
-}
-
-function makeCountry(iso: string, dial: string): CountryOpt {
-  const up = iso.toUpperCase()
-  return { iso: up, dial, label: `${up} ${dial}`, flag: flagEmojiFromIso(up) }
+function isoToFlagEmoji(iso: string) {
+  const code = String(iso || '').trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) return '🏳️'
+  return code.replace(/[A-Z]/g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
 }
 
 const COUNTRY_CODES: CountryOpt[] = [
-  makeCountry('US', '+1'),
-  makeCountry('GB', '+44'),
-  makeCountry('CA', '+1'),
-  makeCountry('AU', '+61'),
-  makeCountry('DE', '+49'),
-  makeCountry('FR', '+33'),
-  makeCountry('IT', '+39'),
-  makeCountry('ES', '+34'),
-  makeCountry('NL', '+31'),
-  makeCountry('SE', '+46'),
-  makeCountry('NO', '+47'),
-  makeCountry('DK', '+45'),
+  { label: 'US +1', dial: '+1', iso: 'US' },
+  { label: 'GB +44', dial: '+44', iso: 'GB' },
+  { label: 'CA +1', dial: '+1', iso: 'CA' },
+  { label: 'AU +61', dial: '+61', iso: 'AU' },
+  { label: 'DE +49', dial: '+49', iso: 'DE' },
+  { label: 'FR +33', dial: '+33', iso: 'FR' },
+  { label: 'IT +39', dial: '+39', iso: 'IT' },
+  { label: 'ES +34', dial: '+34', iso: 'ES' },
+  { label: 'NL +31', dial: '+31', iso: 'NL' },
+  { label: 'SE +46', dial: '+46', iso: 'SE' },
+  { label: 'NO +47', dial: '+47', iso: 'NO' },
+  { label: 'DK +45', dial: '+45', iso: 'DK' },
 
-  makeCountry('BR', '+55'),
-  makeCountry('MX', '+52'),
-  makeCountry('AR', '+54'),
+  { label: 'BR +55', dial: '+55', iso: 'BR' },
+  { label: 'MX +52', dial: '+52', iso: 'MX' },
+  { label: 'AR +54', dial: '+54', iso: 'AR' },
 
-  makeCountry('IN', '+91'),
-  makeCountry('PK', '+92'),
-  makeCountry('BD', '+880'),
-  makeCountry('LK', '+94'),
-  makeCountry('NP', '+977'),
+  { label: 'IN +91', dial: '+91', iso: 'IN' },
+  { label: 'PK +92', dial: '+92', iso: 'PK' },
+  { label: 'BD +880', dial: '+880', iso: 'BD' },
+  { label: 'LK +94', dial: '+94', iso: 'LK' },
+  { label: 'NP +977', dial: '+977', iso: 'NP' },
 
-  makeCountry('JP', '+81'),
-  makeCountry('KR', '+82'),
-  makeCountry('CN', '+86'),
-  makeCountry('SG', '+65'),
-  makeCountry('MY', '+60'),
-  makeCountry('TH', '+66'),
-  makeCountry('ID', '+62'),
-  makeCountry('PH', '+63'),
+  { label: 'JP +81', dial: '+81', iso: 'JP' },
+  { label: 'KR +82', dial: '+82', iso: 'KR' },
+  { label: 'CN +86', dial: '+86', iso: 'CN' },
+  { label: 'SG +65', dial: '+65', iso: 'SG' },
+  { label: 'MY +60', dial: '+60', iso: 'MY' },
+  { label: 'TH +66', dial: '+66', iso: 'TH' },
+  { label: 'ID +62', dial: '+62', iso: 'ID' },
+  { label: 'PH +63', dial: '+63', iso: 'PH' },
 
-  makeCountry('AE', '+971'),
-  makeCountry('SA', '+966'),
-  makeCountry('EG', '+20'),
-  makeCountry('ZA', '+27')
+  { label: 'AE +971', dial: '+971', iso: 'AE' },
+  { label: 'SA +966', dial: '+966', iso: 'SA' },
+  { label: 'EG +20', dial: '+20', iso: 'EG' },
+  { label: 'ZA +27', dial: '+27', iso: 'ZA' }
 ]
 
+// ✅ keep v-model as FULL object (prevents broken select)
 const selectedCountry = ref<CountryOpt>(COUNTRY_CODES.find((c) => c.iso === 'BD') || COUNTRY_CODES[0])
 const phoneLocal = ref('')
 
@@ -129,18 +138,15 @@ function parseE164IntoUi(e164: string) {
 
 const phonePreview = computed(() => toE164(selectedCountry.value.dial, phoneLocal.value))
 
-/* ---------------- Required phone gate ---------------- */
-const mustHavePhone = computed(() => !String(savedPhone.value || '').trim())
+/* ---------------- Required phone gate (ONLY for non-admin) ---------------- */
+const mustHavePhone = computed(() => {
+  if (isAdmin.value) return false
+  return !String(savedPhone.value || '').trim()
+})
+
 const mustCompleteBecauseRedirected = computed(() => String(route.query.needPhone || '') === '1')
 
-onBeforeRouteLeave((to) => {
-  // ✅ If user is already logged out, NEVER block leaving
-  if (!user.value?.id) return true
-
-  // ✅ Always allow navigating to login
-  if (to.path.startsWith('/login')) return true
-
-  // ✅ Block leaving only when logged in AND phone missing
+onBeforeRouteLeave(() => {
   if (mustHavePhone.value) {
     toast.add({
       title: 'Phone number required',
@@ -149,10 +155,8 @@ onBeforeRouteLeave((to) => {
     })
     return false
   }
-
   return true
 })
-
 
 /* ---------------- Display name helpers ---------------- */
 function normalizeDisplayName(v: string) {
@@ -166,10 +170,13 @@ function validate() {
   if (!dn.trim()) return 'Please enter your display name.'
   if (dn.length < 3) return 'Display name should be at least 3 characters.'
 
-  const p = phonePreview.value
-  if (!p) return 'Phone number is required.'
-  const pErr = validatePhoneLocal(phoneLocal.value)
-  if (pErr) return pErr
+  // ✅ phone validation ONLY for non-admin
+  if (!isAdmin.value) {
+    const p = phonePreview.value
+    if (!p) return 'Phone number is required.'
+    const pErr = validatePhoneLocal(phoneLocal.value)
+    if (pErr) return pErr
+  }
 
   return null
 }
@@ -207,22 +214,24 @@ async function loadProfile() {
   loadingProfile.value = true
 
   try {
-    const { data: { user }, error: authErr } = await supabase.auth.getUser()
-    if (authErr || !user?.id) return
+    await loadRole()
+
+    const { data: { user: u }, error: authErr } = await supabase.auth.getUser()
+    if (authErr || !u?.id) return
 
     const fallbackName =
-      (user.user_metadata as any)?.display_name ||
-      (user.user_metadata as any)?.full_name ||
-      (user.email?.split?.('@')?.[0] ?? '') ||
+      (u.user_metadata as any)?.display_name ||
+      (u.user_metadata as any)?.full_name ||
+      (u.email?.split?.('@')?.[0] ?? '') ||
       ''
 
-    const fallbackAvatar = (user.user_metadata as any)?.avatar_url || ''
-    const fallbackPhone = (user.user_metadata as any)?.phone || ''
+    const fallbackAvatar = (u.user_metadata as any)?.avatar_url || ''
+    const fallbackPhone = (u.user_metadata as any)?.phone || ''
 
     const { data } = await (supabase as any)
       .from('profiles')
       .select('display_name, avatar_url, phone')
-      .eq('user_id', user.id)
+      .eq('user_id', u.id)
       .maybeSingle()
 
     state.display_name = (data?.display_name || fallbackName || '').trim()
@@ -265,17 +274,17 @@ async function onPickAvatar(e: Event) {
       return
     }
 
-    const { data: { user }, error: userErr } = await supabase.auth.getUser()
-    if (userErr || !user?.id) throw new Error('Login required')
+    const { data: { user: u }, error: userErr } = await supabase.auth.getUser()
+    if (userErr || !u?.id) throw new Error('Login required')
 
     if (pending.path) {
-      await deleteAvatarIfOwned(pending.path, user.id, true)
+      await deleteAvatarIfOwned(pending.path, u.id, true)
       pending.path = ''
       pending.url = ''
     }
 
     const ext = file.name.split('.').pop()?.toLowerCase() || 'png'
-    const path = `${user.id}/pending/${Date.now()}.${ext}`
+    const path = `${u.id}/pending/${Date.now()}.${ext}`
 
     const { data, error } = await supabase.storage
       .from('avatars')
@@ -295,7 +304,9 @@ async function onPickAvatar(e: Event) {
     toast.add({ title: 'Upload failed', description: err?.message || 'Try again.', color: 'error' })
   } finally {
     resetAvatarInput()
-    setTimeout(() => { avatarUploading.value = false }, 150)
+    setTimeout(() => {
+      avatarUploading.value = false
+    }, 150)
   }
 }
 
@@ -309,12 +320,14 @@ async function save() {
 
   loading.value = true
   try {
-    const { data: { user }, error: userErr } = await supabase.auth.getUser()
-    if (userErr || !user?.id) throw new Error('Login required')
+    const { data: { user: u }, error: userErr } = await supabase.auth.getUser()
+    if (userErr || !u?.id) throw new Error('Login required')
 
     const displayName = normalizeDisplayName(state.display_name)
     const nextAvatarUrl = state.avatar_url.trim() || null
-    const phoneE164 = phonePreview.value.trim()
+
+    // ✅ phone only required for non-admin. For admin, save null if empty.
+    const phoneE164 = isAdmin.value ? (phonePreview.value.trim() || null) : phonePreview.value.trim()
 
     const prevSavedAvatar = savedAvatarUrl.value
 
@@ -322,7 +335,7 @@ async function save() {
       .from('profiles')
       .upsert(
         {
-          user_id: user.id,
+          user_id: u.id,
           display_name: displayName,
           avatar_url: nextAvatarUrl,
           phone: phoneE164,
@@ -349,12 +362,12 @@ async function save() {
     await supabase.auth.refreshSession()
 
     if (prevSavedAvatar && nextAvatarUrl && prevSavedAvatar !== nextAvatarUrl) {
-      await deleteAvatarIfOwned(prevSavedAvatar, user.id, false)
+      await deleteAvatarIfOwned(prevSavedAvatar, u.id, false)
     }
 
     savedAvatarUrl.value = nextAvatarUrl || ''
-    savedPhone.value = phoneE164 || ''
-    state.phone = phoneE164
+    savedPhone.value = (phoneE164 as any) || ''
+    state.phone = (phoneE164 as any) || ''
 
     pending.path = ''
     pending.url = ''
@@ -373,16 +386,18 @@ async function save() {
 async function clearAvatar() {
   if (avatarUploading.value) return
   try {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user?.id && pending.path) {
+    const { data: { user: u } } = await supabase.auth.getUser()
+    if (u?.id && pending.path) {
       avatarUploading.value = true
-      await deleteAvatarIfOwned(pending.path, user.id, true)
+      await deleteAvatarIfOwned(pending.path, u.id, true)
       pending.path = ''
       pending.url = ''
     }
   } finally {
     state.avatar_url = ''
-    setTimeout(() => { avatarUploading.value = false }, 150)
+    setTimeout(() => {
+      avatarUploading.value = false
+    }, 150)
   }
 }
 
@@ -397,9 +412,9 @@ async function cancel() {
   }
 
   try {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user?.id && pending.path) {
-      await deleteAvatarIfOwned(pending.path, user.id, true)
+    const { data: { user: u } } = await supabase.auth.getUser()
+    if (u?.id && pending.path) {
+      await deleteAvatarIfOwned(pending.path, u.id, true)
       pending.path = ''
       pending.url = ''
     }
@@ -408,11 +423,12 @@ async function cancel() {
   }
 }
 
+/* ---------------- UI helpers ---------------- */
 function initials(name: string) {
   const s = String(name || '').trim()
   if (!s) return 'IA'
   const parts = s.split(/\s+/).slice(0, 2)
-  return parts.map(p => p[0]?.toUpperCase() || '').join('') || 'IA'
+  return parts.map((p) => p[0]?.toUpperCase() || '').join('') || 'IA'
 }
 </script>
 
@@ -422,14 +438,21 @@ function initials(name: string) {
       <!-- Header -->
       <div class="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 class="text-3xl md:text-5xl font-semibold tracking-tight text-black dark:text-white">Profile</h1>
+          <h1 class="text-3xl md:text-5xl font-semibold tracking-tight text-black dark:text-white">
+            Profile
+          </h1>
           <p class="mt-2 text-sm md:text-base text-black/70 dark:text-white/70">
             Manage your display name, phone number and avatar.
           </p>
         </div>
 
         <div class="flex items-center gap-2">
-          <UButton variant="soft" icon="i-heroicons-arrow-left" :disabled="loading || avatarUploading" @click="cancel">
+          <UButton
+            variant="soft"
+            icon="i-heroicons-arrow-left"
+            :disabled="loading || avatarUploading"
+            @click="cancel"
+          >
             Back
           </UButton>
 
@@ -446,7 +469,7 @@ function initials(name: string) {
         </div>
       </div>
 
-      <!-- Required phone banner -->
+      <!-- Phone required banner (ONLY non-admin) -->
       <div
         v-if="mustHavePhone"
         class="mt-6 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4"
@@ -465,7 +488,7 @@ function initials(name: string) {
       </div>
 
       <div class="mt-8 grid gap-6 lg:grid-cols-[360px_1fr] items-start">
-        <!-- Left card: avatar -->
+        <!-- Left: Avatar -->
         <UCard class="border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 backdrop-blur">
           <template #header>
             <div class="flex items-center justify-between">
@@ -498,6 +521,7 @@ function initials(name: string) {
                 <div class="mt-1 text-lg font-semibold text-black dark:text-white truncate">
                   {{ state.display_name || '—' }}
                 </div>
+
                 <div class="mt-2 text-xs text-black/60 dark:text-white/60">Phone</div>
                 <div class="mt-1 text-sm font-medium text-black dark:text-white tabular-nums truncate">
                   {{ phonePreview || '—' }}
@@ -530,58 +554,50 @@ function initials(name: string) {
           </div>
         </UCard>
 
-        <!-- Right card: form -->
+        <!-- Right: Form -->
         <UCard class="border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 backdrop-blur">
           <template #header>
             <div class="font-semibold text-black dark:text-white">Profile details</div>
           </template>
 
           <div class="grid gap-5">
-            <!-- ✅ Label before input -->
-            <div class="grid gap-2">
-              <div class="text-xs font-medium text-black/70 dark:text-white/70">Display name</div>
+            <UFormGroup label="Display name" required>
               <UInput
                 v-model="state.display_name"
                 placeholder="Your display name"
                 icon="i-heroicons-user"
                 :disabled="loadingProfile || avatarUploading || loading"
               />
-            </div>
+            </UFormGroup>
 
+            <!-- Phone (required for user, optional for admin) -->
             <div class="grid gap-3 sm:grid-cols-[190px_1fr]">
-              <!-- ✅ Label before input -->
-              <div class="grid gap-2">
-                <div class="text-xs font-medium text-black/70 dark:text-white/70">Country code</div>
-
-                <!-- ✅ UNICODE flags shown inside selector -->
+              <UFormGroup :label="isAdmin ? 'Country code (optional)' : 'Country code'" :required="!isAdmin">
                 <USelectMenu
                   v-model="selectedCountry"
                   :items="COUNTRY_CODES"
-                  value-key="iso"
                   class="w-full"
                   :ui="{ width: 'w-full' }"
                   :search-input="{ placeholder: 'Search…', icon: 'i-heroicons-magnifying-glass' }"
                   :disabled="loadingProfile || loading || avatarUploading"
                 >
                   <template #label>
-                    <span class="inline-flex items-center gap-2 truncate tabular-nums">
-                      <span class="flag">{{ selectedCountry.flag }}</span>
-                      <span class="truncate">{{ selectedCountry.label }}</span>
+                    <span class="inline-flex items-center gap-2 tabular-nums whitespace-nowrap">
+                      <span class="text-base leading-none">{{ isoToFlagEmoji(selectedCountry.iso) }}</span>
+                      <span class="whitespace-nowrap">{{ selectedCountry.label }}</span>
                     </span>
                   </template>
 
                   <template #option="{ option }">
-                    <span class="inline-flex items-center gap-2 truncate tabular-nums">
-                      <span class="flag">{{ option.flag }}</span>
-                      <span class="truncate">{{ option.label }}</span>
+                    <span class="inline-flex items-center gap-2 tabular-nums whitespace-nowrap">
+                      <span class="text-base leading-none">{{ isoToFlagEmoji(option.iso) }}</span>
+                      <span class="whitespace-nowrap">{{ option.label }}</span>
                     </span>
                   </template>
                 </USelectMenu>
-              </div>
+              </UFormGroup>
 
-              <!-- ✅ Label before input -->
-              <div class="grid gap-2">
-                <div class="text-xs font-medium text-black/70 dark:text-white/70">Phone number</div>
+              <UFormGroup :label="isAdmin ? 'Phone number (optional)' : 'Phone number'" :required="!isAdmin">
                 <UInput
                   v-model="phoneLocal"
                   placeholder="Phone number"
@@ -589,10 +605,10 @@ function initials(name: string) {
                   icon="i-heroicons-phone"
                   :disabled="loadingProfile || loading || avatarUploading"
                 />
-              </div>
+              </UFormGroup>
             </div>
 
-            <div v-if="mustCompleteBecauseRedirected || mustHavePhone" class="text-xs text-amber-700 dark:text-amber-300">
+            <div v-if="!isAdmin && (mustCompleteBecauseRedirected || mustHavePhone)" class="text-xs text-amber-700 dark:text-amber-300">
               Phone is mandatory to continue.
             </div>
           </div>
@@ -601,16 +617,3 @@ function initials(name: string) {
     </div>
   </UContainer>
 </template>
-
-<style scoped>
-.flag{
-  font-size: 16px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  flex: 0 0 auto;
-}
-</style>

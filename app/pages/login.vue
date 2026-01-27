@@ -108,6 +108,24 @@ function validatePhoneLocal(local: string) {
   return null
 }
 
+/**
+ * ✅ Phone uniqueness check (server-side, uses Service Role)
+ * Requires: server/api/auth/phone-available.post.ts (code provided below)
+ */
+async function isPhoneAvailable(phoneE164: string): Promise<boolean> {
+  try {
+    const res = await $fetch<{ available: boolean }>('/api/auth/phone-available', {
+      method: 'POST',
+      body: { phone: phoneE164 }
+    })
+    return !!res?.available
+  } catch {
+    // If endpoint missing/misconfigured, do NOT block signup here.
+    // Uniqueness must still be enforced by DB unique constraint on profiles.phone.
+    return true
+  }
+}
+
 /* ---------------- Existing logic ---------------- */
 const nextUrl = computed(() => {
   const n = route.query.next
@@ -157,9 +175,7 @@ function hardReloadTo(path: string) {
 }
 
 async function redirectAfterLogin() {
-  const {
-    data: { session }
-  } = await supabase.auth.getSession()
+  const { data: { session } } = await supabase.auth.getSession()
   if (!session) return
 
   const role = await getRole()
@@ -195,14 +211,14 @@ async function isDisplayNameTaken(name: string): Promise<boolean> {
 
 async function pickUniqueDisplayName(preferred: string): Promise<string> {
   let base = normalizeDisplayName(preferred) || normalizeDisplayName(randomDisplayName())
-  if (!base) base = 'Player' + Math.floor(1000 + Math.random() * 9000)
+  if (!base) base = 'Player' + Math.floor(Math.random() * 900000 + 100000)
 
   for (let i = 0; i < 7; i++) {
     const taken = await isDisplayNameTaken(base)
     if (!taken) return base
     base = `${base.slice(0, 18)}${Math.floor(10 + Math.random() * 90)}`
   }
-  return `Player${Math.floor(100000 + Math.random() * 900000)}`
+  return `Player${Math.floor(Math.random() * 900000 + 100000)}`
 }
 
 async function ensureDisplayNameAfterLogin() {
@@ -233,30 +249,48 @@ async function ensureAvatarAfterLogin() {
   await supabase.auth.refreshSession()
 }
 
-async function upsertProfileIfPossible(dn: string, avatarOverride?: string | null, phoneOverride?: string | null) {
-  try {
-    const u: any = user.value
-    if (!u?.id) return
-    const client: any = supabase
+/**
+ * ✅ Upsert profile (throws friendly codes for uniqueness)
+ * NOTE: For phone uniqueness to truly work, add a UNIQUE constraint on profiles.phone.
+ */
+async function upsertProfileOrThrow(dn: string, avatarOverride?: string | null, phoneOverride?: string | null) {
+  const u: any = user.value
+  if (!u?.id) return
 
-    const md = u.user_metadata || {}
+  const client: any = supabase
+  const md = u.user_metadata || {}
 
-    const avatar = (avatarOverride ?? '').trim() || String(md.avatar_url || '').trim() || null
-    const phone = (phoneOverride ?? '').trim() || String(md.phone || '').trim() || null
+  const avatar =
+    (avatarOverride ?? '').trim() ||
+    String(md.avatar_url || '').trim() ||
+    null
 
-    const payload: any = {
-      user_id: u.id,
-      display_name: dn,
-      avatar_url: avatar,
-      updated_at: new Date().toISOString()
+  const phone =
+    (phoneOverride ?? '').trim() ||
+    String(md.phone || '').trim() ||
+    null
+
+  const payload: any = {
+    user_id: u.id,
+    display_name: dn,
+    avatar_url: avatar,
+    updated_at: new Date().toISOString()
+  }
+  if (phone) payload.phone = phone
+
+  const { error } = await client.from('profiles').upsert(payload, { onConflict: 'user_id' })
+
+  if (error) {
+    const code = String((error as any).code || '')
+    const msg = String(error.message || '').toLowerCase()
+
+    // 23505 = unique violation in Postgres
+    if (code === '23505' || msg.includes('duplicate') || msg.includes('unique')) {
+      if (msg.includes('phone')) throw new Error('PHONE_EXISTS')
+      if (msg.includes('display')) throw new Error('DISPLAY_EXISTS')
+      throw new Error('DUPLICATE')
     }
-
-    if (phone) payload.phone = phone
-
-    const { error } = await client.from('profiles').upsert(payload, { onConflict: 'user_id' })
-    if (error) console.warn('profiles upsert error:', error.message)
-  } catch (e) {
-    console.warn('profiles upsert exception:', e)
+    throw error
   }
 }
 
@@ -288,16 +322,18 @@ async function submit() {
 
       const u: any = user.value
       const md = u?.user_metadata || {}
-      const dn = normalizeDisplayName(md.display_name || md.full_name || md.name || '') || (await pickUniqueDisplayName(''))
+      const dn =
+        normalizeDisplayName(md.display_name || md.full_name || md.name || '') ||
+        (await pickUniqueDisplayName(''))
 
-      await upsertProfileIfPossible(dn)
+      await upsertProfileOrThrow(dn)
 
       toast.add({ title: 'Welcome back', description: 'Logged in successfully.', color: 'success' })
       await redirectAfterLogin()
       return
     }
 
-    // ✅ signup (phone required)
+    // ✅ signup (phone required + UNIQUE)
     const pErr = validatePhoneLocal(phoneLocal.value)
     if (pErr) {
       toast.add({ title: 'Invalid phone', description: pErr, color: 'warning' })
@@ -308,6 +344,13 @@ async function submit() {
     const avatar = pickRandomAvatar()
     const phoneE164 = toE164(selectedCountry.value.dial, phoneLocal.value)
 
+    // ✅ pre-check with service-role endpoint
+    const ok = await isPhoneAvailable(phoneE164)
+    if (!ok) {
+      toast.add({ title: 'Phone number already exists', description: 'Use another number.', color: 'error' })
+      return
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email: email.value.trim(),
       password: password.value,
@@ -315,24 +358,45 @@ async function submit() {
     })
     if (error) throw error
 
+    // If session exists immediately, upsert profile now (will enforce UNIQUE constraint too)
     if (data?.session) {
       await supabase.auth.refreshSession()
-      await upsertProfileIfPossible(dn, avatar, phoneE164)
+      await upsertProfileOrThrow(dn, avatar, phoneE164)
     }
 
     toast.add({
       title: 'Account created',
-      description: data?.session ? 'Welcome! Your account is ready.' : 'If email confirmation is enabled, check your inbox.',
+      description: data?.session
+        ? 'Welcome! Your account is ready.'
+        : 'If email confirmation is enabled, check your inbox.',
       color: 'success'
     })
 
     await redirectAfterLogin()
   } catch (e: any) {
     const msg = String(e?.message || e?.error_description || '')
+
+    // ✅ friendly messages
+    if (msg === 'PHONE_EXISTS') {
+      toast.add({ title: 'Phone number already exists', description: 'Use another number.', color: 'error' })
+      return
+    }
+    if (msg === 'DISPLAY_EXISTS') {
+      toast.add({ title: 'Display name already exists', description: 'Try again.', color: 'error' })
+      return
+    }
+
+    const lower = msg.toLowerCase()
+    if (lower.includes('phone') && (lower.includes('duplicate') || lower.includes('unique') || lower.includes('23505'))) {
+      toast.add({ title: 'Phone number already exists', description: 'Use another number.', color: 'error' })
+      return
+    }
+
     const friendly =
-      msg.includes('duplicate') || msg.includes('23505')
+      lower.includes('duplicate') || lower.includes('23505')
         ? 'Duplicate data detected. Please try again.'
         : msg || 'Please try again.'
+
     toast.add({ title: 'Auth failed', description: friendly, color: 'error' })
   } finally {
     loading.value = false
@@ -421,11 +485,9 @@ function continueBrowsing() {
                     {{ mode === 'signin' ? 'Sign in' : 'Create account' }}
                   </div>
                   <div class="text-xs opacity-70 mt-1">
-                    {{
-                      mode === 'signin'
-                        ? 'Login to play games and save scores.'
-                        : 'Create an account to join the leaderboard.'
-                    }}
+                    {{ mode === 'signin'
+                      ? 'Login to play games and save scores.'
+                      : 'Create an account to join the leaderboard.' }}
                   </div>
                 </div>
 
@@ -462,7 +524,6 @@ function continueBrowsing() {
                       :ui="{ width: 'w-full' }"
                       :search-input="{ placeholder: 'Search…', icon: 'i-heroicons-magnifying-glass' }"
                     >
-                      <!-- ✅ Selected trigger -->
                       <template #label>
                         <span class="inline-flex items-center gap-2 tabular-nums whitespace-nowrap">
                           <span class="text-base leading-none">{{ isoToFlagEmoji(selectedCountry.iso) }}</span>
@@ -470,7 +531,6 @@ function continueBrowsing() {
                         </span>
                       </template>
 
-                      <!-- ✅ Dropdown options -->
                       <template #option="{ option }">
                         <span class="inline-flex items-center gap-2 tabular-nums whitespace-nowrap">
                           <span class="text-base leading-none">{{ isoToFlagEmoji(option.iso) }}</span>
